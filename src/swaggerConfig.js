@@ -1,27 +1,23 @@
 // src/swaggerConfig.js
-const swaggerJSDoc = require('swagger-jsdoc');
+const swaggerJsDoc = require('swagger-jsdoc');
 
-const swaggerDefinition = {
-  openapi: '3.0.0',
-  info: {
-    title: 'HouseTabz API',
-    version: '1.0.0',
-    description: 'API documentation for HouseTabz backend',
-  },
-  servers: [
-    {
-      url: 'http://localhost:3000',
-      description: 'Development server',
+const swaggerOptions = {
+  swaggerDefinition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'HouseTabz API',
+      version: '1.0.0',
+      description: 'API documentation for the HouseTabz backend',
     },
-  ],
+    servers: [
+      {
+        url: 'http://localhost:3000/api',
+      },
+    ],
+  },
+  apis: ['./src/routes/*.js'], // Path to the routes file where JSDoc comments are present
 };
 
-const options = {
-  swaggerDefinition,
-  // Paths to files where APIs are defined
-  apis: ['./src/routes/*.js'],
-};
-
-const swaggerSpec = swaggerJSDoc(options);
+const swaggerSpec = swaggerJsDoc(swaggerOptions);
 
 module.exports = swaggerSpec;

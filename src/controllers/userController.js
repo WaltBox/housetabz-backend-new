@@ -46,7 +46,8 @@ exports.getUser = async (req, res, next) => {
 
 exports.updateUser = async (req, res, next) => {
     try {
-      console.log('Request body:', req.body); // Log the incoming request body
+      console.log('Request Body:', req.body); // Log the request data
+  
       const { username, email, houseId } = req.body;
   
       const user = await User.findByPk(req.params.id);
@@ -55,18 +56,11 @@ exports.updateUser = async (req, res, next) => {
       }
   
       await user.update({ username, email, houseId });
-  
       res.json({
         message: 'User updated successfully',
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          houseId: user.houseId
-        }
+        user: { id: user.id, username: user.username, email: user.email, houseId: user.houseId }
       });
     } catch (error) {
-      console.error('Error updating user:', error); // Log errors if any
       next(error);
     }
   };

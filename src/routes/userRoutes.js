@@ -13,7 +13,41 @@ const userController = require('../controllers/userController');
 
 /**
  * @swagger
- * /api/users:
+ * /users/{id}:
+ *   get:
+ *     summary: Get a specific user by ID
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *     responses:
+ *       200:
+ *         description: User details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 username:
+ *                   type: string
+ *                 email:
+ *                   type: string
+ *                 houseId:
+ *                   type: integer
+ *       404:
+ *         description: User not found
+ */
+router.get('/:id', userController.getUser);
+
+/**
+ * @swagger
+ * /users:
  *   get:
  *     summary: Get all users
  *     tags: [Users]
@@ -38,7 +72,7 @@ router.get('/', userController.getAllUsers);
 
 /**
  * @swagger
- * /api/users:
+ * /users:
  *   post:
  *     summary: Create a new user
  *     tags: [Users]
@@ -59,24 +93,6 @@ router.get('/', userController.getAllUsers);
  *     responses:
  *       201:
  *         description: User created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                     username:
- *                       type: string
- *                     email:
- *                       type: string
- *       400:
- *         description: Bad request, validation failed
  */
 router.post(
   '/',
@@ -89,7 +105,7 @@ router.post(
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /users/{id}:
  *   put:
  *     summary: Update a user
  *     tags: [Users]
@@ -121,7 +137,7 @@ router.put('/:id', userController.updateUser);
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /users/{id}:
  *   delete:
  *     summary: Delete a user
  *     tags: [Users]
