@@ -26,8 +26,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/users', userRoutes);
 app.use('/api/houses', houseRoutes);
 app.use('/api/partners', partnerRoutes);
-app.use('/api/service-plans', servicePlanRoutes);
-app.use('/api/houses', houseServiceRoutes); // Keep this registration for house services as a sub-route to houses
+app.use('/api', servicePlanRoutes); // Changed to '/api'
+app.use('/api/houses', houseServiceRoutes); // House services as a sub-route to houses
 
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

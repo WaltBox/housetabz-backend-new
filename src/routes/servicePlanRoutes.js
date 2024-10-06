@@ -5,10 +5,17 @@ const servicePlanController = require('../controllers/servicePlanController');
 
 /**
  * @swagger
- * /service-plans:
+ * /partners/{partnerId}/service-plans:
  *   post:
- *     summary: Create a new service plan
+ *     summary: Create a new service plan for a specific partner
  *     tags: [ServicePlans]
+ *     parameters:
+ *       - in: path
+ *         name: partnerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The partner ID
  *     requestBody:
  *       required: true
  *       content:
@@ -18,20 +25,33 @@ const servicePlanController = require('../controllers/servicePlanController');
  *             properties:
  *               name:
  *                 type: string
- *                 example: "Basic Energy Plan"
  *               price:
  *                 type: string
- *                 example: "50"
  *               details:
  *                 type: string
- *                 example: "Basic energy plan for small households"
- *               partnerId:
- *                 type: integer
- *                 example: 1
  *     responses:
  *       201:
  *         description: Service plan added successfully
  */
-router.post('/', servicePlanController.createServicePlan);
+router.post('/partners/:partnerId/service-plans', servicePlanController.createServicePlan);
+
+/**
+ * @swagger
+ * /partners/{partnerId}/service-plans:
+ *   get:
+ *     summary: Get all service plans for a specific partner
+ *     tags: [ServicePlans]
+ *     parameters:
+ *       - in: path
+ *         name: partnerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The partner ID
+ *     responses:
+ *       200:
+ *         description: List of all service plans for the partner
+ */
+router.get('/partners/:partnerId/service-plans', servicePlanController.getServicePlansForPartner);
 
 module.exports = router;
