@@ -1,5 +1,4 @@
-// src/models/index.js
-const { Sequelize, DataTypes } = require('sequelize'); // Make sure DataTypes is imported here
+const { Sequelize, DataTypes } = require('sequelize');
 const config = require('../config/config');
 
 const sequelize = new Sequelize(config.databaseUrl, {
@@ -7,14 +6,22 @@ const sequelize = new Sequelize(config.databaseUrl, {
   logging: console.log,
 });
 
-const User = require('./user')(sequelize, DataTypes);  // Pass both sequelize and DataTypes to the model
-const House = require('./house')(sequelize, DataTypes); // Pass both sequelize and DataTypes to the model
+// Import models and pass sequelize and DataTypes
+const User = require('./user')(sequelize, DataTypes);
+const House = require('./house')(sequelize, DataTypes);
+const Partner = require('./partner')(sequelize, DataTypes);
+const ServicePlan = require('./servicePlan')(sequelize, DataTypes);
+const HouseService = require('./houseService')(sequelize, DataTypes);
 
+// Add models to the db object for exporting
 const db = {
   sequelize,
   Sequelize,
   User,
   House,
+  Partner,
+  ServicePlan,
+  HouseService,
 };
 
 // Setup associations
