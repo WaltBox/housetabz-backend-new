@@ -1,6 +1,6 @@
 // src/controllers/houseServiceController.js
 
-// src/controllers/houseServiceController.js
+
 
 const { HouseService, House, Partner, ServicePlan } = require('../models'); // Ensure all models are imported correctly
 
@@ -58,7 +58,7 @@ exports.addServiceToHouse = async (req, res, next) => {
         return res.status(404).json({ message: 'House not found' });
       }
   
-      // Find all services associated with the house
+      // Find all services associated with the house, including Partner and ServicePlan
       const houseServices = await HouseService.findAll({
         where: { houseId: id },
         include: [

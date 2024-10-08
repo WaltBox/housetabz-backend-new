@@ -23,14 +23,20 @@ app.use(morgan('dev'));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
-app.use('/api/users', userRoutes);
+app.use('/api/users', userRoutes);  // Keep only this line for users
 app.use('/api/houses', houseRoutes);
 app.use('/api/partners', partnerRoutes);
-app.use('/api', servicePlanRoutes); // Changed to '/api'
-app.use('/api/houses', houseServiceRoutes); // House services as a sub-route to houses
+app.use('/api/service-plans', servicePlanRoutes);  // Updated route
+app.use('/api/houses', houseServiceRoutes);  // House services as sub-route to houses
 
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
+});
+
+app._router.stack.forEach(function(r) {
+  if (r.route && r.route.path) {
+    console.log(r.route.path);
+  }
 });
 
 // Error handling middleware

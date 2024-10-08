@@ -3,11 +3,14 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 const houseServiceController = require('../controllers/houseServiceController');
 
+
+
 /**
  * @swagger
  * /houses/{id}/services:
- *   post:
+ *  
  *     summary: Add a service to a house
+ *   description: Add a service to a specific house
  *     tags: [HouseServices]
  *     parameters:
  *       - in: path

@@ -3,7 +3,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const router = express.Router();
 const userController = require('../controllers/userController');
-
+const { updateUserHouse } = require('../controllers/userController');
 /**
  * @swagger
  * tags:
@@ -153,5 +153,60 @@ router.put('/:id', userController.updateUser);
  *         description: User deleted successfully
  */
 router.delete('/:id', userController.deleteUser);
+
+/**
+ * @swagger
+ * /users/{id}/house:
+ *   put:
+ *     summary: Update a user's houseId
+ *     description: Adds a user to a house by updating their houseId.
+ *     tags:
+ *       - Users
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: The user ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               houseId:
+ *                 type: integer
+ *                 example: 1
+ *     responses:
+ *       200:
+ *         description: Successfully updated user's houseId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: User added to the house
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     houseId:
+ *                       type: integer
+ *                       example: 2
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Failed to update houseId
+ */
+
+router.put('/:id/house', updateUserHouse);  
+
+
 
 module.exports = router;

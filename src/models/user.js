@@ -44,5 +44,10 @@ module.exports = (sequelize, DataTypes) => {
     return false;
   };
 
+
+  User.associate = (models) => {
+    User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' }); // Associate User with House
+  };
+
   return User;
 };
