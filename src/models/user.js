@@ -29,6 +29,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    balance: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0.0, // New balance field with default value of 0
+    },
   });
 
   User.beforeCreate(async (user) => {
