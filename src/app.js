@@ -7,6 +7,8 @@ const houseRoutes = require('./routes/houseRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
 const servicePlanRoutes = require('./routes/servicePlanRoutes');
 const houseServiceRoutes = require('./routes/houseServiceRoutes');
+const serviceRequestBundleRoutes = require('./routes/serviceRequestBundleRoutes');
+const taskRoutes = require('./routes/taskRoutes');
 const { sequelize } = require('./models');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swaggerConfig');
@@ -26,8 +28,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/users', userRoutes);  // Keep only this line for users
 app.use('/api/houses', houseRoutes);
 app.use('/api/partners', partnerRoutes);
-app.use('/api/service-plans', servicePlanRoutes);  // Updated route
+app.use('/api', servicePlanRoutes);  // Register service plans route
 app.use('/api/houses', houseServiceRoutes);  // House services as sub-route to houses
+
+app.use('/api', serviceRequestBundleRoutes);  // For service request bundles
+app.use('/api/tasks', taskRoutes);  // For individual service requests (tasks)
 
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

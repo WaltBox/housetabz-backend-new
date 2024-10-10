@@ -12,6 +12,8 @@ const House = require('./house')(sequelize, DataTypes);
 const Partner = require('./partner')(sequelize, DataTypes);
 const ServicePlan = require('./servicePlan')(sequelize, DataTypes);
 const HouseService = require('./houseService')(sequelize, DataTypes);
+const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTypes);  // Correct import
+const Task = require('./task')(sequelize, DataTypes);  // Import Task model
 
 // Add models to the db object for exporting
 const db = {
@@ -22,6 +24,8 @@ const db = {
   Partner,
   ServicePlan,
   HouseService,
+  ServiceRequestBundle,
+  Task
 };
 
 // Setup associations
