@@ -12,7 +12,7 @@ const billRoutes = require('./routes/billRoutes');  // Bill routes
 const chargeRoutes = require('./routes/chargeRoutes');  // Charge routes
 const taskRoutes = require('./routes/taskRoutes');
 const rhythmOffersRoutes = require('./routes/rhythmOffersRoutes');  // Import rhythm offers route
-
+const rhythmOfferRequestRoutes = require('./routes/rhythmOfferRequestRoutes');  // Import rhythm offer requests route
 
 
 const { sequelize } = require('./models');
@@ -46,8 +46,7 @@ app.use('/api/houses', billRoutes);  // For bills
 app.use('/api/users', chargeRoutes);  // For user charges
 
 app.use('/api/v2/rhythm-offers', rhythmOffersRoutes);  
-
-
+app.use('/api/user', rhythmOfferRequestRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
 });

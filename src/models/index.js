@@ -1,6 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const config = require('../config/config');
 
+
 const sequelize = new Sequelize(config.databaseUrl, {
   dialect: 'postgres',
   logging: console.log,
@@ -16,7 +17,7 @@ const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTy
 const Bill = require('./bill')(sequelize, DataTypes);  // Import Bill model
 const Charge = require('./charge')(sequelize, DataTypes);  // Import Charge model
 const Task = require('./task')(sequelize, DataTypes);  // Import Task model
-
+const RhythmOfferRequest = require('./rhythmOfferRequest')(sequelize, DataTypes);  // Import RhythmOfferRequest model
 // Add models to the db object for exporting
 const db = {
   sequelize,
@@ -30,6 +31,7 @@ const db = {
   Task,
   Bill,
   Charge,
+  RhythmOfferRequest,
 };
 
 // Setup associations

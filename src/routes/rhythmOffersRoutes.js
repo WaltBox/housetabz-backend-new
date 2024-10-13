@@ -1,10 +1,3 @@
-/**
- * @swagger
- * tags:
- *   name: RhythmOffers
- *   description: API for fetching rhythm offers
- */
-
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -27,24 +20,6 @@ const RHYTHM_API_URL = 'http://localhost:3000/api/v2/offer-snapshots';
  *               type: array
  *               items:
  *                 type: object
- *                 properties:
- *                   uuid:
- *                     type: string
- *                     example: 095be615-a8ad-4c33-8e9c-c7612fbf6c9f
- *                   title:
- *                     type: string
- *                     example: Energy Plan 12 Months
- *                   term_months:
- *                     type: integer
- *                     example: 12
- *                   rhythm_kwh_rate:
- *                     type: string
- *                     example: 0.15
- *                   zip_codes:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["22699", "84150", "89581"]
  *       500:
  *         description: Server error
  */
@@ -71,31 +46,9 @@ router.get('/', async (req, res) => {
  *           type: string
  *         required: true
  *         description: The Zip Code to filter offers by
- *         example: 22699
  *     responses:
  *       200:
  *         description: A list of rhythm offers available at the given Zip Code
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   uuid:
- *                     type: string
- *                     example: 095be615-a8ad-4c33-8e9c-c7612fbf6c9f
- *                   title:
- *                     type: string
- *                     example: Energy Plan 12 Months
- *                   rhythm_kwh_rate:
- *                     type: string
- *                     example: 0.15
- *                   zip_codes:
- *                     type: array
- *                     items:
- *                       type: string
- *                     example: ["22699"]
  *       404:
  *         description: No offers found for the specified Zip Code
  *       500:
@@ -113,6 +66,46 @@ router.get('/:zipcode', async (req, res) => {
   } catch (error) {
     console.error(`Error fetching offers for zipcode ${zipcode}:`, error.message);
     res.status(500).json({ error: 'Failed to fetch offers by zipcode.' });
+  }
+});
+
+/**
+ * @swagger
+ * /v2/rhythm-offers/uuid/{uuid}:
+ *   get:
+ *     summary: Retrieve a specific rhythm offer by UUID
+ *     tags: [RhythmOffers]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: The UUID of the rhythm offer to retrieve
+ *     responses:
+ *       200:
+ *         description: A rhythm offer snapshot
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *       404:
+ *         description: Offer not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/uuid/:uuid', async (req, res) => {
+  const { uuid } = req.params;
+
+  try {
+    const response = await axios.get(`${RHYTHM_API_URL}/${uuid}`);
+    if (!response.data) {
+      return res.status(404).json({ error: 'Offer not found.' });
+    }
+    res.status(200).json(response.data);
+  } catch (error) {
+    console.error(`Error fetching offer with UUID ${uuid}:`, error.message);
+    res.status(500).json({ error: 'Failed to fetch offer by UUID.' });
   }
 });
 
