@@ -64,7 +64,7 @@ app.use((err, req, res, next) => {
 });
 
 // Sync database
-sequelize.sync({ alter: true })
+sequelize.sync({ force: true })
   .then(() => {
     console.log('Database synced');
     app.listen(config.port, () => {

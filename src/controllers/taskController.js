@@ -1,38 +1,73 @@
-const { Task, User } = require('../models');
+const { Task, ServiceRequestBundle, RhythmOfferRequest } = require('../models');
+const { Op } = require('sequelize');
 
-// Create individual service requests (tasks)
-exports.createServiceRequest = async (req, res, next) => {
+exports.getTasks = async (req, res) => {
   try {
-    const { bundleId, userId, status } = req.body;
-    const task = await Task.create({
-      type: 'service request',  // Identify it as a service request
-      status: status || 'pending',
-      userId,
-      serviceRequestBundleId: bundleId,
-    });
-    res.status(201).json({ message: 'Service request created', task });
+    const tasks = await Task.findAll();
+    res.status(200).json(tasks);
   } catch (error) {
-    next(error);
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 };
 
-// Get all tasks
-exports.getAllTasks = async (req, res, next) => {
-    try {
-      const tasks = await Task.findAll();
-      res.status(200).json(tasks);
-    } catch (error) {
-      next(error);
+exports.getTasksForUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const tasks = await Task.findAll({ where: { userId } });
+
+    if (!tasks.length) {
+      return res.status(404).json({ error: 'No tasks found for this user' });
     }
-  };
-  
-  // Get tasks for a specific user
-  exports.getTasksForUser = async (req, res, next) => {
-    try {
-      const { userId } = req.params;
-      const tasks = await Task.findAll({ where: { userId } });
-      res.status(200).json(tasks);
-    } catch (error) {
-      next(error);
+
+    res.status(200).json(tasks);
+  } catch (error) {
+    console.error('Error fetching tasks for user:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks for user' });
+  }
+};
+
+exports.updateTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { response } = req.body;
+
+    const task = await Task.findByPk(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
-  };
+
+    task.response = response;
+    task.status = response === 'accepted';
+    await task.save();
+
+    const tasksInBundle = await Task.findAll({
+      where: {
+        serviceRequestBundleId: task.serviceRequestBundleId,
+        status: false,
+      },
+    });
+
+    if (tasksInBundle.length === 0) {
+      const serviceRequestBundle = await ServiceRequestBundle.findByPk(
+        task.serviceRequestBundleId
+      );
+      serviceRequestBundle.roommate_accepted = true;
+      await serviceRequestBundle.save();
+
+      const rhythmOfferRequest = await RhythmOfferRequest.findOne({
+        where: { service_request_bundle_id: serviceRequestBundle.id },
+      });
+
+      if (rhythmOfferRequest) {
+        rhythmOfferRequest.roommate_accepted = true;
+        await rhythmOfferRequest.save();
+      }
+    }
+
+    res.status(200).json(task);
+  } catch (error) {
+    console.error('Error updating task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+};

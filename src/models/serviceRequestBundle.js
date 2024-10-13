@@ -1,4 +1,4 @@
-const { Op } = require('sequelize'); // Ensure this import
+const { Op } = require('sequelize'); // Import Sequelize Op
 
 module.exports = (sequelize, DataTypes) => {
   const ServiceRequestBundle = sequelize.define('ServiceRequestBundle', {
@@ -21,38 +21,47 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
+  // Associations
   ServiceRequestBundle.associate = (models) => {
-    ServiceRequestBundle.hasMany(models.ServiceRequest, { 
+    ServiceRequestBundle.hasMany(models.Task, { 
       foreignKey: 'serviceRequestBundleId', 
-      as: 'requests' 
+      as: 'tasks' 
     });
+
     ServiceRequestBundle.belongsTo(models.House, { foreignKey: 'houseId' });
-    ServiceRequestBundle.belongsTo(models.User, { foreignKey: 'userId', as: 'submitter' });
+    ServiceRequestBundle.belongsTo(models.User, { 
+      foreignKey: 'userId', 
+      as: 'submitter' 
+    });
   };
 
-  // After creating a ServiceRequestBundle, create ServiceRequests for each roommate
+  // Hook: After creating a ServiceRequestBundle, create Tasks for each roommate
   ServiceRequestBundle.afterCreate(async (bundle, options) => {
-    const { User } = sequelize.models;
+    const { User, Task } = sequelize.models;
 
     try {
       // Fetch all users in the same house, excluding the request creator
       const roommates = await User.findAll({
         where: {
           houseId: bundle.houseId,
-          id: { [Op.ne]: bundle.userId },
+          id: { [Op.ne]: bundle.userId }, // Exclude the user who created the bundle
         },
       });
 
-      const serviceRequests = roommates.map((roommate) => ({
+      // Prepare tasks for each roommate
+      const tasks = roommates.map((roommate) => ({
         userId: roommate.id,
         serviceRequestBundleId: bundle.id,
-        accepted: false,
+        type: 'service request',
+        status: false, // Not accepted initially
+        response: null, // No response yet (can be 'accepted' or 'rejected')
       }));
 
-      await sequelize.models.ServiceRequest.bulkCreate(serviceRequests);
+      // Bulk create tasks
+      await Task.bulkCreate(tasks);
     } catch (error) {
-      console.error('Error creating service requests:', error);
-      throw error; // Throw the error to ensure it bubbles up if needed
+      console.error('Error creating tasks:', error);
+      throw error; // Ensure the error bubbles up
     }
   });
 

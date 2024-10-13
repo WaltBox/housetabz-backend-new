@@ -1,7 +1,7 @@
 const { ServiceRequestBundle, Task, User, Sequelize } = require('../models');
-const { Op } = Sequelize;  // Import Sequelize operators
+const { Op } = Sequelize; // Import Sequelize operators
 
-// Create service request bundle and corresponding tasks
+// Create service request bundle (Tasks are automatically created via afterCreate hook)
 exports.createServiceRequestBundle = async (req, res, next) => {
   try {
     const { houseId, userId, status } = req.body;
@@ -13,53 +13,38 @@ exports.createServiceRequestBundle = async (req, res, next) => {
       status,
     });
 
-  // Automatically create tasks for all housemates except the submitter
-const users = await User.findAll({
-  where: { houseId, id: { [Op.ne]: userId } },  // Exclude the user who submitted the request
-});
-
-const tasks = users.map(user => ({
-  type: 'service request',
-  userId: user.id,
-  serviceRequestBundleId: serviceRequestBundle.id,
-}));
-
-
-
-
-    await Task.bulkCreate(tasks);
-
     res.status(201).json({
-      message: 'Service request bundle and tasks created successfully',
+      message: 'Service request bundle created successfully',
       serviceRequestBundle,
-      tasks,
     });
   } catch (error) {
-    console.error("Error creating service request bundle:", error);  // Log the actual error
-    next(error);
+    console.error('Error creating service request bundle:', error);
+    next(error); // Pass error to error-handling middleware
   }
 };
 
-// Get all service request bundles
+// Get all service request bundles for a house
 exports.getServiceRequestBundles = async (req, res, next) => {
   try {
     const { houseId } = req.query;
-    console.log('Fetching service requests for houseId:', houseId);  // Debugging
+
+    console.log('Fetching service request bundles for houseId:', houseId); // Debugging
 
     const serviceRequests = await ServiceRequestBundle.findAll({
       where: { houseId },
-      include: [{ model: Task, as: 'tasks' }]  // Ensure 'tasks' alias matches association
+      include: [
+        { model: Task, as: 'tasks' } // Ensure alias matches association in the model
+      ],
     });
 
-    console.log('Service requests found:', serviceRequests);  // Debugging
+    console.log('Service request bundles found:', serviceRequests); // Debugging
 
     res.status(200).json({
-      message: 'Service requests retrieved successfully',
-      serviceRequests
+      message: 'Service request bundles retrieved successfully',
+      serviceRequests,
     });
   } catch (error) {
-    console.error('Error fetching service requests:', error);  // Log error
-    next(error);
+    console.error('Error fetching service request bundles:', error);
+    next(error); // Pass error to error-handling middleware
   }
 };
-
