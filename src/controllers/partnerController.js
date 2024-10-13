@@ -29,3 +29,13 @@ exports.getAllPartners = async (req, res, next) => {
     next(error);
   }
 };
+
+// Get all partners
+exports.getPartner = async (req, res, next) => {
+  try {
+    const partner = await Partner.findByPk(req.params.id);
+    res.status(200).json(partner);
+  } catch (error) {
+    next(error);
+  }
+};

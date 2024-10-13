@@ -13,6 +13,8 @@ const Partner = require('./partner')(sequelize, DataTypes);
 const ServicePlan = require('./servicePlan')(sequelize, DataTypes);
 const HouseService = require('./houseService')(sequelize, DataTypes);
 const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTypes);  // Correct import
+const Bill = require('./bill')(sequelize, DataTypes);  // Import Bill model
+const Charge = require('./charge')(sequelize, DataTypes);  // Import Charge model
 const Task = require('./task')(sequelize, DataTypes);  // Import Task model
 
 // Add models to the db object for exporting
@@ -25,7 +27,9 @@ const db = {
   ServicePlan,
   HouseService,
   ServiceRequestBundle,
-  Task
+  Task,
+  Bill,
+  Charge,
 };
 
 // Setup associations

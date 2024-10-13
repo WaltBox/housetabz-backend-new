@@ -1,11 +1,21 @@
-// src/controllers/houseController.js
 const { House, User } = require('../models');
 
 // Create a new house
 exports.createHouse = async (req, res, next) => {
   try {
-    const { name, address } = req.body;
-    const house = await House.create({ name, address });
+    // Extract new address fields from request body
+    const { name, address_line, secondary_line, city, state, zip_code } = req.body;
+
+    // Create the house using the new fields
+    const house = await House.create({
+      name,
+      address_line,
+      secondary_line,
+      city,
+      state,
+      zip_code
+    });
+
     res.status(201).json({
       message: 'House created successfully',
       house,
@@ -25,14 +35,23 @@ exports.getAllHouses = async (req, res, next) => {
   }
 };
 
-// Get a single house
+// Get house by ID with associated users
 exports.getHouse = async (req, res, next) => {
   try {
-    const house = await House.findByPk(req.params.id, { include: 'users' });
+    const { id } = req.params;
+    const house = await House.findByPk(id, {
+      include: [{
+        model: User,
+        as: 'users',  // Assuming 'users' is the association alias
+        attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],  // Include relevant user fields
+      }],
+    });
+
     if (!house) {
       return res.status(404).json({ message: 'House not found' });
     }
-    res.json(house);
+
+    res.status(200).json(house);
   } catch (error) {
     next(error);
   }
@@ -41,12 +60,24 @@ exports.getHouse = async (req, res, next) => {
 // Update a house
 exports.updateHouse = async (req, res, next) => {
   try {
-    const { name, address } = req.body;
+    // Extract new address fields from request body
+    const { name, address_line, secondary_line, city, state, zip_code } = req.body;
+
     const house = await House.findByPk(req.params.id);
     if (!house) {
       return res.status(404).json({ message: 'House not found' });
     }
-    await house.update({ name, address });
+
+    // Update the house with the new fields
+    await house.update({
+      name,
+      address_line,
+      secondary_line,
+      city,
+      state,
+      zip_code
+    });
+
     res.json({
       message: 'House updated successfully',
       house,

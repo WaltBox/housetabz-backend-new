@@ -1,4 +1,3 @@
-// src/routes/houseRoutes.js
 const express = require('express');
 const router = express.Router();
 const houseController = require('../controllers/houseController');
@@ -26,9 +25,21 @@ const houseController = require('../controllers/houseController');
  *               name:
  *                 type: string
  *                 example: "House Alpha"
- *               address:
+ *               address_line:
  *                 type: string
  *                 example: "123 Main St"
+ *               secondary_line:
+ *                 type: string
+ *                 example: "Apt 4B"
+ *               city:
+ *                 type: string
+ *                 example: "Austin"
+ *               state:
+ *                 type: string
+ *                 example: "TX"
+ *               zip_code:
+ *                 type: string
+ *                 example: "78701"
  *     responses:
  *       201:
  *         description: House created successfully
@@ -59,9 +70,21 @@ router.post('/', houseController.createHouse);
  *                   name:
  *                     type: string
  *                     example: "House Alpha"
- *                   address:
+ *                   address_line:
  *                     type: string
  *                     example: "123 Main St"
+ *                   secondary_line:
+ *                     type: string
+ *                     example: "Apt 4B"
+ *                   city:
+ *                     type: string
+ *                     example: "Austin"
+ *                   state:
+ *                     type: string
+ *                     example: "TX"
+ *                   zip_code:
+ *                     type: string
+ *                     example: "78701"
  */
 router.get('/', houseController.getAllHouses);
 
@@ -69,7 +92,7 @@ router.get('/', houseController.getAllHouses);
  * @swagger
  * /houses/{id}:
  *   get:
- *     summary: Get a house by ID
+ *     summary: Get a house by ID with associated users
  *     tags: [Houses]
  *     parameters:
  *       - in: path
@@ -80,7 +103,7 @@ router.get('/', houseController.getAllHouses);
  *         description: The house ID
  *     responses:
  *       200:
- *         description: House details
+ *         description: House details with associated users
  *         content:
  *           application/json:
  *             schema:
@@ -92,9 +115,44 @@ router.get('/', houseController.getAllHouses);
  *                 name:
  *                   type: string
  *                   example: "House Alpha"
- *                 address:
+ *                 address_line:
  *                   type: string
  *                   example: "123 Main St"
+ *                 secondary_line:
+ *                   type: string
+ *                   example: "Apt 4B"
+ *                 city:
+ *                   type: string
+ *                   example: "Austin"
+ *                 state:
+ *                   type: string
+ *                   example: "TX"
+ *                 zip_code:
+ *                   type: string
+ *                   example: "78701"
+ *                 users:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                         example: 1
+ *                       username:
+ *                         type: string
+ *                         example: "john_doe"
+ *                       email:
+ *                         type: string
+ *                         example: "john@example.com"
+ *                       balance:
+ *                         type: number
+ *                         example: 50
+ *                       points:
+ *                         type: integer
+ *                         example: 100
+ *                       credit:
+ *                         type: integer
+ *                         example: 10
  *       404:
  *         description: House not found
  */
@@ -123,9 +181,21 @@ router.get('/:id', houseController.getHouse);
  *               name:
  *                 type: string
  *                 example: "House Beta"
- *               address:
+ *               address_line:
  *                 type: string
  *                 example: "456 Elm St"
+ *               secondary_line:
+ *                 type: string
+ *                 example: "Apt 10C"
+ *               city:
+ *                 type: string
+ *                 example: "Dallas"
+ *               state:
+ *                 type: string
+ *                 example: "TX"
+ *               zip_code:
+ *                 type: string
+ *                 example: "75201"
  *     responses:
  *       200:
  *         description: House updated successfully

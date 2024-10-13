@@ -1,16 +1,13 @@
-// src/routes/houseServiceRoutes.js
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const houseServiceController = require('../controllers/houseServiceController');
 
-
-
 /**
  * @swagger
  * /houses/{id}/services:
- *  
+ *   post:
  *     summary: Add a service to a house
- *   description: Add a service to a specific house
+ *     description: Add a service to a specific house
  *     tags: [HouseServices]
  *     parameters:
  *       - in: path
@@ -66,6 +63,7 @@ const houseServiceController = require('../controllers/houseServiceController');
  *                     updatedAt:
  *                       type: string
  */
+router.post('/:id/services', houseServiceController.addServiceToHouse);
 
 /**
  * @swagger
@@ -118,7 +116,6 @@ const houseServiceController = require('../controllers/houseServiceController');
  *                       details:
  *                         type: string
  */
-router.post('/:id/services', houseServiceController.addServiceToHouse);
 router.get('/:id/services', houseServiceController.getServicesForHouse);
 
 module.exports = router;
