@@ -12,6 +12,14 @@ module.exports = (sequelize, DataTypes) => {
           defaultValue: DataTypes.UUIDV4,
           unique: true,
         },
+        service_request_bundle_id: {
+          type: DataTypes.INTEGER,
+          allowNull: false,
+          references: {
+            model: 'ServiceRequestBundles', // Ensure consistency with the actual table name
+            key: 'id',
+          },
+        },
         url: DataTypes.STRING,
         term_months: DataTypes.INTEGER,
         title: DataTypes.STRING,
@@ -62,23 +70,17 @@ module.exports = (sequelize, DataTypes) => {
           type: DataTypes.BOOLEAN,
           defaultValue: false,
         },
-        service_start_date: {
-          type: DataTypes.DATE,
-          allowNull: true,
-        },
+        service_start_date: DataTypes.DATE,
         enrollment_type: {
           type: DataTypes.ENUM('MOVE_IN', 'SWITCH'),
           allowNull: false,
           defaultValue: 'MOVE_IN',
         },
-        meter_id: {
-          type: DataTypes.STRING,
-          allowNull: true,
-        },
+        meter_id: DataTypes.STRING,
       },
       {
         tableName: 'rhythm_offer_requests',
-        timestamps: true, // Adds createdAt and updatedAt
+        timestamps: true,
       }
     );
   
