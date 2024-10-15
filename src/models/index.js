@@ -19,6 +19,7 @@ const Bill = require('./bill')(sequelize, DataTypes);  // Import Bill model
 const Charge = require('./charge')(sequelize, DataTypes);  // Import Charge model
 const Task = require('./task')(sequelize, DataTypes);  // Import Task model
 const RhythmOfferRequest = require('./rhythmOfferRequest')(sequelize, DataTypes);  // Import RhythmOfferRequest model
+const CustomerValidation = require('./customerValidation')(sequelize, DataTypes);  // Import CustomerValidation model
 // Add models to the db object for exporting
 const db = {
   sequelize,
@@ -33,6 +34,7 @@ const db = {
   Bill,
   Charge,
   RhythmOfferRequest,
+  CustomerValidation,
 };
 
 // Setup associations
