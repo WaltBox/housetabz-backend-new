@@ -1,7 +1,6 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const config = require('../config/config');
 
-
 const sequelize = new Sequelize(config.databaseUrl, {
   dialect: 'postgres',
   logging: console.log,
@@ -13,13 +12,15 @@ const House = require('./house')(sequelize, DataTypes);
 const Partner = require('./partner')(sequelize, DataTypes);
 const ServicePlan = require('./servicePlan')(sequelize, DataTypes);
 const HouseService = require('./houseService')(sequelize, DataTypes);
-const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTypes);  // Correct import
+const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTypes);
+const Bill = require('./bill')(sequelize, DataTypes);
+const Charge = require('./charge')(sequelize, DataTypes);
+const Task = require('./task')(sequelize, DataTypes);
+const RhythmOfferRequest = require('./rhythmOfferRequest')(sequelize, DataTypes);
+const SparklyRequest = require('./sparklyRequest')(sequelize, DataTypes);
 
-const Bill = require('./bill')(sequelize, DataTypes);  // Import Bill model
-const Charge = require('./charge')(sequelize, DataTypes);  // Import Charge model
-const Task = require('./task')(sequelize, DataTypes);  // Import Task model
-const RhythmOfferRequest = require('./rhythmOfferRequest')(sequelize, DataTypes);  // Import RhythmOfferRequest model
-const CustomerValidation = require('./customerValidation')(sequelize, DataTypes);  // Import CustomerValidation model
+const CustomerValidation = require('./customerValidation')(sequelize, DataTypes);
+
 // Add models to the db object for exporting
 const db = {
   sequelize,
@@ -34,6 +35,8 @@ const db = {
   Bill,
   Charge,
   RhythmOfferRequest,
+  SparklyRequest,
+  
   CustomerValidation,
 };
 

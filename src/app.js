@@ -13,7 +13,7 @@ const chargeRoutes = require('./routes/chargeRoutes');  // Charge routes
 const taskRoutes = require('./routes/taskRoutes');
 const rhythmOffersRoutes = require('./routes/rhythmOffersRoutes');  // Import rhythm offers route
 const rhythmOfferRequestRoutes = require('./routes/rhythmOfferRequestRoutes');  // Import rhythm offer requests route
-
+const sparklyRequestRoutes = require('./routes/sparklyRequestRoutes');
 
 const { sequelize } = require('./models');
 const swaggerUi = require('swagger-ui-express');
@@ -47,6 +47,9 @@ app.use('/api/users', chargeRoutes);  // For user charges
 
 app.use('/api/v2/rhythm-offers', rhythmOffersRoutes);  
 app.use('/api/user', rhythmOfferRequestRoutes);
+app.use('/api/partners', sparklyRequestRoutes);
+
+
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
 });
@@ -64,7 +67,7 @@ app.use((err, req, res, next) => {
 });
 
 // Sync database
-sequelize.sync({ force: true })
+sequelize.sync({ alter: true })
   .then(() => {
     console.log('Database synced');
     app.listen(config.port, () => {

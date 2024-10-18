@@ -23,16 +23,24 @@ module.exports = (sequelize, DataTypes) => {
 
   // Associations
   ServiceRequestBundle.associate = (models) => {
-    ServiceRequestBundle.hasMany(models.Task, { 
-      foreignKey: 'serviceRequestBundleId', 
-      as: 'tasks' 
+    // A bundle has many tasks
+    ServiceRequestBundle.hasMany(models.Task, {
+      foreignKey: 'serviceRequestBundleId',
+      as: 'tasks',
     });
 
-    ServiceRequestBundle.belongsTo(models.House, { foreignKey: 'houseId' });
-    ServiceRequestBundle.belongsTo(models.User, { 
-      foreignKey: 'userId', 
-      as: 'submitter' 
+    // A bundle belongs to a house
+    ServiceRequestBundle.belongsTo(models.House, {
+      foreignKey: 'houseId',
     });
+
+    // A bundle belongs to a user (submitter)
+    ServiceRequestBundle.belongsTo(models.User, {
+      foreignKey: 'userId',
+      as: 'submitter',
+    });
+
+   
   };
 
   // Hook: After creating a ServiceRequestBundle, create Tasks for each roommate
