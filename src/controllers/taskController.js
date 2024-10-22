@@ -1,4 +1,4 @@
-const { Task, ServiceRequestBundle, RhythmOfferRequest } = require('../models');
+const { Task, ServiceRequestBundle, RhythmOfferRequest, SparklyRequest } = require('../models');
 const { Op } = require('sequelize');
 
 exports.getTasks = async (req, res) => {
@@ -55,6 +55,7 @@ exports.updateTask = async (req, res) => {
       serviceRequestBundle.roommate_accepted = true;
       await serviceRequestBundle.save();
 
+      // Update RhythmOfferRequest if it exists
       const rhythmOfferRequest = await RhythmOfferRequest.findOne({
         where: { service_request_bundle_id: serviceRequestBundle.id },
       });
@@ -63,7 +64,18 @@ exports.updateTask = async (req, res) => {
         rhythmOfferRequest.roommate_accepted = true;
         await rhythmOfferRequest.save();
       }
+
+      // Update SparklyRequest if it exists
+      const sparklyRequest = await SparklyRequest.findOne({
+        where: { service_request_bundle_id: serviceRequestBundle.id },
+      });
+
+      if (sparklyRequest) {
+        sparklyRequest.roommate_accepted = true;
+        await sparklyRequest.save();
+      }
     }
+
 
     res.status(200).json(task);
   } catch (error) {

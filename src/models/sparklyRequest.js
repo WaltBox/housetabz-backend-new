@@ -1,4 +1,3 @@
-// models/sparklyRequest.js
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
@@ -71,6 +70,20 @@ module.exports = (sequelize) => {
       foreignKey: 'user_id',
     });
   };
+
+  SparklyRequest.afterUpdate(async (sparklyRequest, options) => {
+    if (sparklyRequest.changed('roommate_accepted') && sparklyRequest.roommate_accepted) {
+      try {
+        // Update status without triggering the afterUpdate hook
+        sparklyRequest.service_status = 'ready for scheduling';
+        await sparklyRequest.save({ hooks: false }); // Prevent afterUpdate from being called again
+      } catch (error) {
+        console.error('Error updating service_status:', error);
+        throw error;
+      }
+    }
+  });
+  
 
   return SparklyRequest;
 };
