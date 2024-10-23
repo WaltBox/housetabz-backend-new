@@ -1,4 +1,3 @@
-// src/routes/partnerRoutes.js
 const express = require('express');
 const router = express.Router();
 const partnerController = require('../controllers/partnerController');
@@ -60,7 +59,7 @@ router.get('/', partnerController.getAllPartners);
  * @swagger
  * /partners/{id}:
  *   get:
- *     summary: Get partner by ID
+ *     summary: Get partner by ID with service offers (if applicable)
  *     tags: [Partners]
  *     parameters:
  *       - in: path
@@ -72,24 +71,55 @@ router.get('/', partnerController.getAllPartners);
  *         example: 1
  *     responses:
  *       200:
- *         description: Partner details
+ *         description: Partner details with service offers (if available)
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 id:
- *                   type: integer
- *                   example: 1
- *                 name:
- *                   type: string
- *                   example: "Rhythm Energy"
- *                 description:
- *                   type: string
- *                   example: "Energy provider"
+ *                 partner:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     name:
+ *                       type: string
+ *                       example: "Rhythm Energy"
+ *                     description:
+ *                       type: string
+ *                       example: "Energy provider"
+ *                 serviceOffers:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       uuid:
+ *                         type: string
+ *                         example: "abc123-uuid"
+ *                       title:
+ *                         type: string
+ *                         example: "12-Month Plan"
+ *                       term_months:
+ *                         type: integer
+ *                         example: 12
+ *                       rhythm_kwh_rate:
+ *                         type: number
+ *                         example: 0.11
+ *                       price_1000_kwh:
+ *                         type: number
+ *                         example: 110.00
+ *                       renewable_energy:
+ *                         type: boolean
+ *                         example: true
+ *                       description_en:
+ *                         type: string
+ *                         example: "Affordable renewable energy plan."
  *       404:
  *         description: Partner not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/:id', partnerController.getPartner);
+router.get('/:id', partnerController.getPartnerWithOffers);
 
 module.exports = router;
