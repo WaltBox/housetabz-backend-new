@@ -11,7 +11,7 @@ const User = require('./user')(sequelize, DataTypes);
 const House = require('./house')(sequelize, DataTypes);
 const Partner = require('./partner')(sequelize, DataTypes);
 const ServicePlan = require('./servicePlan')(sequelize, DataTypes);
-const HouseService = require('./houseService')(sequelize, DataTypes);
+
 const ServiceRequestBundle = require('./serviceRequestBundle')(sequelize, DataTypes);
 const Bill = require('./bill')(sequelize, DataTypes);
 const Charge = require('./charge')(sequelize, DataTypes);
@@ -29,7 +29,7 @@ const db = {
   House,
   Partner,
   ServicePlan,
-  HouseService,
+
   ServiceRequestBundle,
   Task,
   Bill,

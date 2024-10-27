@@ -1,40 +1,17 @@
 const { DataTypes } = require('sequelize');
 const axios = require('axios');
+const { sequelize } = require('../models'); // Correct import of sequelize
 
 module.exports = (sequelize) => {
   const RhythmOfferRequest = sequelize.define(
     'RhythmOfferRequest',
     {
-      id: {
-        type: DataTypes.INTEGER,
-        autoIncrement: true,
-        primaryKey: true,
-      },
-      uuid: {
-        type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
-        unique: true,
-      },
-      service_request_bundle_id: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'ServiceRequestBundles', // Table name
-          key: 'id',
-        },
-      },
-      roommate_accepted: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-      },
-      house_id: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-      },
-      user_id: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-      },
+      id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+      uuid: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, unique: true },
+      service_request_bundle_id: { type: DataTypes.INTEGER, allowNull: false },
+      roommate_accepted: { type: DataTypes.BOOLEAN, defaultValue: false },
+      house_id: { type: DataTypes.INTEGER, allowNull: false },
+      user_id: { type: DataTypes.INTEGER, allowNull: false },
       service_start_date: DataTypes.DATE,
       enrollment_type: {
         type: DataTypes.ENUM('MOVE_IN', 'SWITCH'),
@@ -42,48 +19,76 @@ module.exports = (sequelize) => {
         defaultValue: 'MOVE_IN',
       },
       meter_id: DataTypes.STRING,
+      customer_validated: { type: DataTypes.BOOLEAN, defaultValue: false },
     },
-    {
-      tableName: 'rhythm_offer_requests',
-      timestamps: true,
-    }
+    { tableName: 'rhythm_offer_requests', timestamps: true }
   );
 
-  // Hook to trigger customer validation
-  RhythmOfferRequest.afterUpdate(async (request, options) => {
-    console.log(`afterUpdate hook triggered for RhythmOfferRequest: ${request.id}`);
+  RhythmOfferRequest.associate = (models) => {
+    RhythmOfferRequest.hasOne(models.CustomerValidation, {
+      foreignKey: 'rhythm_offer_request_id',
+      as: 'customerValidation',
+    });
+  };
 
-    if (request.roommate_accepted === true) {
+  RhythmOfferRequest.afterUpdate(async (request) => {
+    const { CustomerValidation } = sequelize.models;
+
+    if (request.roommate_accepted && !request.customer_validated) {
+      console.log(`afterUpdate hook triggered for RhythmOfferRequest: ${request.id}`);
+
       try {
-        const customerData = await prepareCustomerData(request, sequelize.models);
-
-        const response = await axios.post(
-          'http://localhost:3000/api/v2/customer-validations/',
-          customerData
-        );
-
-        const validationResponse = response.data;
-
-        // Save the customer validation in the database
-        await sequelize.models.CustomerValidation.create({
-          uuid: validationResponse.uuid,
-          deposit_amount: validationResponse.deposit_amount,
-          first_name: validationResponse.first_name,
-          last_name: validationResponse.last_name,
-          email: validationResponse.email,
-          phone: validationResponse.phone,
-          address_line: validationResponse.address_line,
-          secondary_line: validationResponse.secondary_line,
-          city: validationResponse.city,
-          state: validationResponse.state,
-          zip_code: validationResponse.zip_code,
-          acquisition_medium: validationResponse.acquisition_medium,
-          acquisition_campaign: validationResponse.acquisition_campaign,
+        const existingValidation = await CustomerValidation.findOne({
+          where: { rhythm_offer_request_id: request.id },
         });
 
-        console.log('Customer validation saved successfully.');
+        if (!existingValidation) {
+          const customerData = await prepareCustomerData(request, sequelize);
+          console.log('Sending customer validation request:', customerData);
+
+          const response = await axios.post(
+            'http://localhost:3000/api/v2/customer-validations/',
+            customerData
+          );
+
+          const validationResponse = response.data;
+          console.log('Customer validation response:', validationResponse);
+
+          await CustomerValidation.create({
+            uuid: validationResponse.uuid,
+            deposit_amount: validationResponse.deposit_amount,
+            first_name: 'housetabz,inc',
+            last_name: 'housetabz,inc',
+            email: 'housetabz@example.com',
+            phone: '888222333',
+            address_line: validationResponse.address_line,
+            secondary_line: validationResponse.secondary_line,
+            city: validationResponse.city,
+            state: validationResponse.state,
+            zip_code: validationResponse.zip_code,
+            acquisition_medium: validationResponse.acquisition_medium,
+            acquisition_campaign: validationResponse.acquisition_campaign,
+            rhythm_offer_request_id: request.id,
+          });
+
+          console.log('Customer validation created.');
+        }
+
+        request.customer_validated = true;
+        await request.save();
+
+        const customerValidation = await CustomerValidation.findOne({
+          where: { rhythm_offer_request_id: request.id },
+        });
+
+        if (customerValidation) {
+          console.log('Making premises request...');
+          await makePremisesRequest(request, customerValidation, sequelize);
+        } else {
+          console.error('Customer validation not found for premises creation.');
+        }
       } catch (error) {
-        console.error('Error creating customer validation:', error);
+        console.error('Error during customer validation or premises request:', error);
         throw error;
       }
     }
@@ -92,21 +97,56 @@ module.exports = (sequelize) => {
   return RhythmOfferRequest;
 };
 
-// Helper function to prepare customer data
-async function prepareCustomerData(request, models) {
-  try {
-    const user = await models.User.findByPk(request.user_id);
-    const house = await models.House.findByPk(request.house_id);
+async function makePremisesRequest(rhythmOfferRequest, customerValidation, sequelize) {
+  const { House } = sequelize.models;
 
-    if (!user || !house) {
-      throw new Error('User or House not found');
-    }
+  try {
+    const house = await House.findByPk(rhythmOfferRequest.house_id);
+    if (!house) throw new Error('House not found');
+
+    const premisesPayload = {
+      enrollment_type: rhythmOfferRequest.enrollment_type,
+      meter_id: rhythmOfferRequest.meter_id,
+      offer_snapshot: rhythmOfferRequest.uuid,
+      service_start_date: null,
+      customer_validation: customerValidation.uuid,
+      status: 'PENDING', // Explicitly add status here
+      mailing_address: {
+        address_line: house.address_line,
+        secondary_line: house.secondary_line || '',
+        city: house.city,
+        state: house.state,
+        zip_code: house.zip_code,
+      },
+      payment_method_id: null,
+    };
+
+    console.log('Sending premises request payload:', premisesPayload);
+
+    const response = await axios.post('http://localhost:3000/api/v2/premises/', premisesPayload);
+
+    console.log('Premises request successful:', response.data);
+  } catch (error) {
+    console.error('Error making premises request:', error.toJSON ? error.toJSON() : error);
+    throw error;
+  }
+}
+
+// Helper function to prepare customer data
+async function prepareCustomerData(request, sequelize) {
+  const { User, House } = sequelize.models;
+
+  try {
+    const user = await User.findByPk(request.user_id);
+    const house = await House.findByPk(request.house_id);
+
+    if (!user || !house) throw new Error('User or House not found');
 
     return {
-      first_name: 'HouseTabz',
-      last_name: 'HouseTabz',
-      email: 'house_name@housetabz.com',
-      phone: 'House Phone',
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone || 'House Phone',
       address_line: house.address_line,
       secondary_line: house.secondary_line || '',
       city: house.city,

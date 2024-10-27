@@ -5,8 +5,8 @@ const config = require('./config/config');
 const userRoutes = require('./routes/userRoutes');
 const houseRoutes = require('./routes/houseRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
-const servicePlanRoutes = require('./routes/servicePlanRoutes');
-const houseServiceRoutes = require('./routes/houseServiceRoutes');
+
+
 const serviceRequestBundleRoutes = require('./routes/serviceRequestBundleRoutes');
 const billRoutes = require('./routes/billRoutes');  // Bill routes
 const chargeRoutes = require('./routes/chargeRoutes');  // Charge routes
@@ -35,8 +35,8 @@ app.use('/api/users', userRoutes);  // Users related routes
 app.use('/api/houses', houseRoutes);
 
 app.use('/api/partners', partnerRoutes);  // Partners related routes
-app.use('/api', servicePlanRoutes);  // Service plans route
-app.use('/api/houses', houseServiceRoutes);  // House services under houses
+
+
 
 app.use('/api', serviceRequestBundleRoutes);  // Service request bundles
 app.use('/api/tasks', taskRoutes);  // Tasks (service requests)

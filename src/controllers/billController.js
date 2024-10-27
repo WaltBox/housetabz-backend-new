@@ -4,10 +4,10 @@ const { Bill, Charge, User, House } = require('../models');
 exports.createBill = async (req, res, next) => {
     try {
       const { houseId } = req.params;
-      const { houseServiceId, amount } = req.body;
+      const { amount } = req.body;
   
       // Create the bill for the house and house service
-      const bill = await Bill.create({ houseId, houseServiceId, amount, status: false });
+      const bill = await Bill.create({ houseId, amount, status: false });
   
       // Distribute the charges to each roommate
       const users = await User.findAll({ where: { houseId } });

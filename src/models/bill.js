@@ -13,7 +13,7 @@ module.exports = (sequelize, DataTypes) => {
   
     Bill.associate = (models) => {
       Bill.belongsTo(models.House, { foreignKey: 'houseId' });
-      Bill.belongsTo(models.HouseService, { foreignKey: 'houseServiceId' });
+
       Bill.hasMany(models.Charge, { foreignKey: 'billId' });
     };
   

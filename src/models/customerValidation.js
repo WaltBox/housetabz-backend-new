@@ -16,7 +16,7 @@ module.exports = (sequelize) => {
       },
       deposit_amount: {
         type: DataTypes.STRING,
-        allowNull: true, // This may be optional based on the API response
+        allowNull: true,
       },
       first_name: {
         type: DataTypes.STRING,
@@ -29,9 +29,7 @@ module.exports = (sequelize) => {
       email: {
         type: DataTypes.STRING,
         allowNull: false,
-        validate: {
-          isEmail: true,
-        },
+        validate: { isEmail: true },
       },
       phone: {
         type: DataTypes.STRING,
@@ -52,9 +50,7 @@ module.exports = (sequelize) => {
       state: {
         type: DataTypes.STRING,
         allowNull: false,
-        validate: {
-          len: [2, 2], // State abbreviation (e.g., TX, AL)
-        },
+        validate: { len: [2, 2] },
       },
       zip_code: {
         type: DataTypes.STRING,
@@ -72,12 +68,28 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      rhythm_offer_request_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'rhythm_offer_requests',
+          key: 'id',
+        },
+      },
     },
     {
       tableName: 'customer_validations',
-      timestamps: true, // Adds createdAt and updatedAt fields
+      timestamps: true,
     }
   );
+
+    // Define the association
+    CustomerValidation.associate = (models) => {
+      CustomerValidation.belongsTo(models.RhythmOfferRequest, {
+        foreignKey: 'rhythm_offer_request_id',
+        as: 'rhythmOfferRequest',
+      });
+    };
 
   return CustomerValidation;
 };

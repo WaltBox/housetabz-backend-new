@@ -1,9 +1,9 @@
 const axios = require('axios');
-const { RhythmOfferRequest, ServiceRequestBundle } = require('../models');
+const { House, RhythmOfferRequest, ServiceRequestBundle } = require('../models');
 
 exports.createRhythmOfferRequest = async (req, res) => {
   const { user_id, uuid } = req.params;
-  const { house_id, security_deposit, service_start_date, enrollment_type, meter_id } = req.body;
+  const { house_id, security_deposit, service_start_date, enrollment_type } = req.body;
 
   try {
     // Fetch the offer snapshot by UUID
@@ -13,6 +13,15 @@ exports.createRhythmOfferRequest = async (req, res) => {
 
     const offerSnapshot = offerSnapshotResponse.data;
 
+    // Fetch the house by house_id
+    const house = await House.findOne({ where: { id: house_id } });
+
+    if (!house) {
+      return res.status(404).json({ error: 'House not found.' });
+    }
+
+    const meterId = house.meter_id || 'default-meter-id'; // Handle meter_id
+
     // Create a new ServiceRequestBundle
     const serviceRequestBundle = await ServiceRequestBundle.create({
       status: 'pending',
@@ -20,7 +29,7 @@ exports.createRhythmOfferRequest = async (req, res) => {
       userId: user_id,
     });
 
-    // Create the new RhythmOfferRequest by copying fields from the offer snapshot
+    // Create the new RhythmOfferRequest using the offer snapshot data
     const newRequest = await RhythmOfferRequest.create({
       uuid: offerSnapshot.uuid,
       url: offerSnapshot.url,
@@ -57,7 +66,7 @@ exports.createRhythmOfferRequest = async (req, res) => {
       security_deposit,
       service_start_date,
       enrollment_type,
-      meter_id,
+      meter_id: meterId, // Use the meter_id from the house
       security_deposit_paid: false, // Default value
       roommate_accepted: false, // Default value
       service_request_bundle_id: serviceRequestBundle.id, // Link to bundle
