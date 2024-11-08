@@ -1,22 +1,30 @@
 module.exports = (sequelize, DataTypes) => {
-    const Bill = sequelize.define('Bill', {
-      amount: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-      },
-      paid: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        defaultValue: false, // unpaid by default
-      },
-    });
-  
-    Bill.associate = (models) => {
-      Bill.belongsTo(models.House, { foreignKey: 'houseId' });
+  const Bill = sequelize.define('Bill', {
+    amount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    paid: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false, // unpaid by default
+    },
+    houseService_id: { // Add houseService_id as a foreign key
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+  });
 
-      Bill.hasMany(models.Charge, { foreignKey: 'billId' });
-    };
-  
-    return Bill;
+  Bill.associate = (models) => {
+    // Bill belongs to House
+    Bill.belongsTo(models.House, { foreignKey: 'houseId' });
+
+    // Bill belongs to HouseService
+    Bill.belongsTo(models.HouseService, { foreignKey: 'houseService_id', as: 'houseService' });
+
+    // Bill has many Charges
+    Bill.hasMany(models.Charge, { foreignKey: 'billId' });
   };
-  
+
+  return Bill;
+};

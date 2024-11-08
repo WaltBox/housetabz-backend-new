@@ -20,7 +20,7 @@ const RhythmOfferRequest = require('./rhythmOfferRequest')(sequelize, DataTypes)
 const SparklyRequest = require('./sparklyRequest')(sequelize, DataTypes);
 
 const CustomerValidation = require('./customerValidation')(sequelize, DataTypes);
-
+const HouseService = require('./houseService')(sequelize, DataTypes);
 // Add models to the db object for exporting
 const db = {
   sequelize,
@@ -38,6 +38,7 @@ const db = {
   SparklyRequest,
   
   CustomerValidation,
+  HouseService,
 };
 
 // Setup associations
