@@ -2,6 +2,15 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const partnerController = require('../controllers/partnerController');
+const path = require('path');
+const fs = require('fs');
+
+// Ensure the uploads directory exists
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  console.log('Uploads folder created.');
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({

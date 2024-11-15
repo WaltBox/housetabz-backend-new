@@ -6,7 +6,15 @@ const axios = require('axios'); // For external API requests
 exports.createPartner = async (req, res, next) => {
   try {
     const { name, description, logo, marketplace_cover, company_cover, about, important_information } = req.body;
-    const newPartner = await Partner.create({ name, description, logo, marketplace_cover, company_cover, about, important_information });
+    const newPartner = await Partner.create({ 
+      name, 
+      description, 
+      logo, 
+      marketplace_cover, 
+      company_cover, 
+      about, 
+      important_information 
+    });
     res.status(201).json({
       message: 'Partner added successfully',
       partner: newPartner,
@@ -26,7 +34,7 @@ exports.getAllPartners = async (req, res, next) => {
   }
 };
 
-// Get a single partner by ID, and include service offers if it's Rhythm
+// Get a single partner by ID, and include service offers if applicable
 exports.getPartnerWithOffers = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -59,34 +67,35 @@ exports.getPartnerWithOffers = async (req, res, next) => {
   }
 };
 
+// Update a partner, including file uploads
 exports.updatePartner = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { about, important_information } = req.body;
     
+    // Find the partner by ID
     const partner = await Partner.findByPk(id);
     if (!partner) {
       return res.status(404).json({ message: 'Partner not found' });
     }
 
-    // Prepare the fields to update
-    const updateData = {
-      about,
-      important_information,
-    };
+    // Prepare fields for update
+    const updateData = { about, important_information };
 
-    // Check for uploaded files and add their paths to the update
-    if (req.files['logo']) {
-      updateData.logo = req.files['logo'][0].path;
-    }
-    if (req.files['marketplace_cover']) {
-      updateData.marketplace_cover = req.files['marketplace_cover'][0].path;
-    }
-    if (req.files['company_cover']) {
-      updateData.company_cover = req.files['company_cover'][0].path;
+    // Handle file uploads
+    if (req.files) {
+      if (req.files['logo']) {
+        updateData.logo = req.files['logo'][0].path; // Save the file path
+      }
+      if (req.files['marketplace_cover']) {
+        updateData.marketplace_cover = req.files['marketplace_cover'][0].path; // Save the file path
+      }
+      if (req.files['company_cover']) {
+        updateData.company_cover = req.files['company_cover'][0].path; // Save the file path
+      }
     }
 
-    // Update partner with new data
+    // Update the partner
     await partner.update(updateData);
 
     res.status(200).json({
@@ -94,6 +103,7 @@ exports.updatePartner = async (req, res, next) => {
       partner,
     });
   } catch (error) {
+    console.error('Error updating partner:', error);
     next(error);
   }
 };
