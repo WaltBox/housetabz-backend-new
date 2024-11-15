@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const partnerController = require('../controllers/partnerController');
 const path = require('path');
 const fs = require('fs');
+const db = require('../models'); // Importing the models
+const partnerController = require('../controllers/partnerController');
+const Partner = db.Partner; // Access the Partner model
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -32,24 +34,81 @@ const upload = multer({ storage });
  *   post:
  *     summary: Add a new partner
  *     tags: [Partners]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 example: "Rhythm Energy"
- *               description:
- *                 type: string
- *                 example: "Energy provider"
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: ["plannable", "formable"]
+ *         description: "Type of partner. Choose from 'plannable' or 'formable'."
+ *       - in: query
+ *         name: name
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Name of the partner."
+ *       - in: query
+ *         name: description
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: "Short description of the partner."
  *     responses:
  *       201:
  *         description: Partner added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Partner added successfully"
+ *                 partner:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     name:
+ *                       type: string
+ *                       example: "Rhythm Energy"
+ *                     description:
+ *                       type: string
+ *                       example: "Energy provider offering renewable energy solutions."
+ *                     type:
+ *                       type: string
+ *                       example: "plannable"
  */
-router.post('/', partnerController.createPartner);
+router.post('/', async (req, res, next) => {
+    try {
+      const { name, description, type } = req.query;
+  
+      // Validate required fields
+      if (!name || !type) {
+        return res.status(400).json({ message: 'Name and type are required fields.' });
+      }
+  
+      // Validate the `type` field
+      if (!['plannable', 'formable'].includes(type)) {
+        return res.status(400).json({ message: 'Invalid type. Allowed values are plannable or formable.' });
+      }
+  
+      // Create the new partner
+      const partner = await Partner.create({
+        name,
+        description,
+        type,
+      });
+  
+      res.status(201).json({ message: 'Partner added successfully', partner });
+    } catch (error) {
+      console.error('Error creating partner:', error);
+      next(error);
+    }
+  });
+  
 
 /**
  * @swagger
@@ -184,6 +243,9 @@ router.get('/:id', partnerController.getPartnerWithOffers);
  *               important_information:
  *                 type: string
  *                 description: Important information about the partner
+ *               type:
+ *                 type: string
+ *                 enum: ["plannable", "formable"]
  *     responses:
  *       200:
  *         description: Partner updated successfully
@@ -196,6 +258,37 @@ router.patch('/:id', upload.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'marketplace_cover', maxCount: 1 },
   { name: 'company_cover', maxCount: 1 },
-]), partnerController.updatePartner);
+]), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { about, important_information, type } = req.body;
+
+    const partner = await Partner.findByPk(id);
+    if (!partner) {
+      return res.status(404).json({ message: 'Partner not found' });
+    }
+
+    const updateData = { about, important_information };
+    if (type) {
+      updateData.type = type; // Add type to the update
+    }
+
+    // Check for uploaded files and add their paths to the update
+    if (req.files['logo']) {
+      updateData.logo = req.files['logo'][0].path;
+    }
+    if (req.files['marketplace_cover']) {
+      updateData.marketplace_cover = req.files['marketplace_cover'][0].path;
+    }
+    if (req.files['company_cover']) {
+      updateData.company_cover = req.files['company_cover'][0].path;
+    }
+
+    await partner.update(updateData);
+    res.status(200).json({ message: 'Partner updated successfully', partner });
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = router;

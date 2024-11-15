@@ -32,15 +32,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT, // Text content for important information section
       allowNull: true,
     },
+      type: {
+      type: DataTypes.ENUM('plannable', 'formable'),
+      allowNull: false,
+      defaultValue: 'plannable', // Default type
+    },
   });
 
-  // Partner can have multiple service plans
-  Partner.associate = (models) => {
-    Partner.hasMany(models.ServicePlan, {
-      foreignKey: 'partnerId',
-      onDelete: 'CASCADE',
-    });
-  };
+
 
   return Partner;
 };
