@@ -1,4 +1,4 @@
-const { House, User } = require('../models');
+const { House, User, Bill  } = require('../models');
 const axios = require('axios'); // Import axios for API requests
 
 // Create a new house and update it with meter_id and utility_id
@@ -67,11 +67,18 @@ exports.getHouse = async (req, res, next) => {
   try {
     const { id } = req.params;
     const house = await House.findByPk(id, {
-      include: [{
-        model: User,
-        as: 'users',  // Assuming 'users' is the association alias
-        attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],  // Include relevant user fields
-      }],
+      include: [
+        {
+          model: User,
+          as: 'users',  
+          attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],
+        },
+        {
+          model: Bill,
+          as: 'bills', // Use the alias defined in the model
+          attributes: ['id', 'amount', 'paid', 'createdAt', 'updatedAt'],
+        },
+      ],
     });
 
     if (!house) {

@@ -33,7 +33,7 @@ exports.getAllUsers = async (req, res, next) => {
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
-      attributes: ['id', 'username', 'email', 'houseId', 'balance'], // Fetch user attributes
+      attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit'], // Fetch user attributes
       include: {
         model: House,  // Include house details
         as: 'house',   // Ensure alias matches model association

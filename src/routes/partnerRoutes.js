@@ -1,6 +1,21 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const partnerController = require('../controllers/partnerController');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/'); // Save uploads in 'uploads' folder
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `${file.fieldname}-${uniqueSuffix}-${file.originalname}`);
+  },
+});
+
+// File upload handler
+const upload = multer({ storage });
 
 /**
  * @swagger
@@ -121,5 +136,57 @@ router.get('/', partnerController.getAllPartners);
  *         description: Internal server error
  */
 router.get('/:id', partnerController.getPartnerWithOffers);
+
+/**
+ * @swagger
+ * /partners/{id}:
+ *   patch:
+ *     summary: Update partner details including file uploads
+ *     tags: [Partners]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         schema:
+ *           type: integer
+ *         required: true
+ *         description: Numeric ID of the partner to update
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *                 description: Logo file for the partner
+ *               marketplace_cover:
+ *                 type: string
+ *                 format: binary
+ *                 description: Marketplace cover image file
+ *               company_cover:
+ *                 type: string
+ *                 format: binary
+ *                 description: Company cover image file
+ *               about:
+ *                 type: string
+ *                 description: About information for the partner
+ *               important_information:
+ *                 type: string
+ *                 description: Important information about the partner
+ *     responses:
+ *       200:
+ *         description: Partner updated successfully
+ *       404:
+ *         description: Partner not found
+ *       500:
+ *         description: Internal server error
+ */
+router.patch('/:id', upload.fields([
+  { name: 'logo', maxCount: 1 },
+  { name: 'marketplace_cover', maxCount: 1 },
+  { name: 'company_cover', maxCount: 1 },
+]), partnerController.updatePartner);
 
 module.exports = router;

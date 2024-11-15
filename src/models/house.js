@@ -106,5 +106,10 @@ module.exports = (sequelize) => {
     await House.updateMeterAndUtility(house); // Call the update function here
   });
 
+  House.associate = (models) => {
+    House.hasMany(models.User, { foreignKey: 'houseId', as: 'users' }); // Associate House with Users
+    House.hasMany(models.Bill, { foreignKey: 'houseId', as: 'bills' }); // Associate House with Bills
+  };
+
   return House;
 };
