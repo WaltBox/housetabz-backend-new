@@ -44,12 +44,11 @@ exports.getAllPartners = async (req, res, next) => {
   }
 };
 
-// Get a single partner with offers
 exports.getPartnerWithOffers = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Fetch partner details by ID
+    // Fetch the partner details
     const partner = await Partner.findByPk(id);
 
     if (!partner) {
@@ -57,21 +56,15 @@ exports.getPartnerWithOffers = async (req, res, next) => {
     }
 
     let serviceOffers = [];
-
-    // Logic for plannable partners
-    if (partner.type === 'plannable') {
+    if (partner.type === 'plannable' && partner.name === 'Rhythm Energy') {
       try {
-        const response = await axios.get(`http://external-api.com/offers?partnerId=${id}`);
-        serviceOffers = response.data;
+        // Fetch Rhythm Energy plans from localhost:3000
+        const response = await axios.get('http://localhost:3000/api/v2/offer-snapshots');
+        serviceOffers = response.data; // Assuming this returns the plans
       } catch (apiError) {
-        console.error('Error fetching service offers:', apiError);
+        console.error('Error fetching Rhythm Energy plans:', apiError);
+        return res.status(500).json({ error: 'Failed to fetch plans' });
       }
-    }
-
-    // Logic for formable partners (if applicable)
-    if (partner.type === 'formable') {
-      // Add logic to handle formable partners, e.g., custom pricing or parameter forms
-      serviceOffers = []; // Placeholder for form-based service offers
     }
 
     res.status(200).json({ partner, serviceOffers });
