@@ -5,7 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../models'); // Importing the models
 const partnerController = require('../controllers/partnerController');
+const formController = require('../controllers/formController');
+const parameterController = require('../controllers/parameterController');
 const Partner = db.Partner; // Access the Partner model
+
 
 // Ensure the uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -20,7 +23,7 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/'); // Save uploads in 'uploads' folder
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, `${file.fieldname}-${uniqueSuffix}-${file.originalname}`);
   },
 });
@@ -57,58 +60,31 @@ const upload = multer({ storage });
  *     responses:
  *       201:
  *         description: Partner added successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Partner added successfully"
- *                 partner:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       example: 1
- *                     name:
- *                       type: string
- *                       example: "Rhythm Energy"
- *                     description:
- *                       type: string
- *                       example: "Energy provider offering renewable energy solutions."
- *                     type:
- *                       type: string
- *                       example: "plannable"
  */
 router.post('/', async (req, res, next) => {
-    try {
-      const { name, description, type } = req.query;
-  
-      // Validate required fields
-      if (!name || !type) {
-        return res.status(400).json({ message: 'Name and type are required fields.' });
-      }
-  
-      // Validate the `type` field
-      if (!['plannable', 'formable'].includes(type)) {
-        return res.status(400).json({ message: 'Invalid type. Allowed values are plannable or formable.' });
-      }
-  
-      // Create the new partner
-      const partner = await Partner.create({
-        name,
-        description,
-        type,
-      });
-  
-      res.status(201).json({ message: 'Partner added successfully', partner });
-    } catch (error) {
-      console.error('Error creating partner:', error);
-      next(error);
+  try {
+    const { name, description, type } = req.query;
+
+    if (!name || !type) {
+      return res.status(400).json({ message: 'Name and type are required fields.' });
     }
-  });
-  
+
+    if (!['plannable', 'formable'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid type. Allowed values are plannable or formable.' });
+    }
+
+    const partner = await Partner.create({
+      name,
+      description,
+      type,
+    });
+
+    res.status(201).json({ message: 'Partner added successfully', partner });
+  } catch (error) {
+    console.error('Error creating partner:', error);
+    next(error);
+  }
+});
 
 /**
  * @swagger
@@ -142,66 +118,8 @@ router.get('/', partnerController.getAllPartners);
  * @swagger
  * /partners/{id}:
  *   get:
- *     summary: Get partner by ID with service offers (if applicable)
+ *     summary: Get partner by ID with service offers or forms and parameters
  *     tags: [Partners]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *         description: Numeric ID of the partner to retrieve
- *         example: 1
- *     responses:
- *       200:
- *         description: Partner details with service offers (if available)
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 partner:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       example: 1
- *                     name:
- *                       type: string
- *                       example: "Rhythm Energy"
- *                     description:
- *                       type: string
- *                       example: "Energy provider"
- *                 serviceOffers:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       uuid:
- *                         type: string
- *                         example: "abc123-uuid"
- *                       title:
- *                         type: string
- *                         example: "12-Month Plan"
- *                       term_months:
- *                         type: integer
- *                         example: 12
- *                       rhythm_kwh_rate:
- *                         type: number
- *                         example: 0.11
- *                       price_1000_kwh:
- *                         type: number
- *                         example: 110.00
- *                       renewable_energy:
- *                         type: boolean
- *                         example: true
- *                       description_en:
- *                         type: string
- *                         example: "Affordable renewable energy plan."
- *       404:
- *         description: Partner not found
- *       500:
- *         description: Internal server error
  */
 router.get('/:id', partnerController.getPartnerWithOffers);
 
@@ -211,49 +129,8 @@ router.get('/:id', partnerController.getPartnerWithOffers);
  *   patch:
  *     summary: Update partner details including file uploads
  *     tags: [Partners]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *         description: Numeric ID of the partner to update
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               logo:
- *                 type: string
- *                 format: binary
- *                 description: Logo file for the partner
- *               marketplace_cover:
- *                 type: string
- *                 format: binary
- *                 description: Marketplace cover image file
- *               company_cover:
- *                 type: string
- *                 format: binary
- *                 description: Company cover image file
- *               about:
- *                 type: string
- *                 description: About information for the partner
- *               important_information:
- *                 type: string
- *                 description: Important information about the partner
- *               type:
- *                 type: string
- *                 enum: ["plannable", "formable"]
- *     responses:
- *       200:
- *         description: Partner updated successfully
- *       404:
- *         description: Partner not found
- *       500:
- *         description: Internal server error
  */
+
 router.patch('/:id', upload.fields([
   { name: 'logo', maxCount: 1 },
   { name: 'marketplace_cover', maxCount: 1 },
@@ -270,10 +147,9 @@ router.patch('/:id', upload.fields([
 
     const updateData = { about, important_information };
     if (type) {
-      updateData.type = type; // Add type to the update
+      updateData.type = type;
     }
 
-    // Check for uploaded files and add their paths to the update
     if (req.files['logo']) {
       updateData.logo = req.files['logo'][0].path;
     }
@@ -290,5 +166,62 @@ router.patch('/:id', upload.fields([
     next(error);
   }
 });
+
+/**
+ * @swagger
+ * /partners/{partnerId}/forms:
+ *   post:
+ *     summary: Create a form for a partner
+ *     tags: [Forms]
+ */
+router.post('/:partnerId/forms', formController.createForm);
+
+/**
+ * @swagger
+ * /partners/{partnerId}/forms:
+ *   get:
+ *     summary: Get all forms and parameters for a partner
+ *     tags: [Forms]
+ */
+router.get('/:partnerId/forms', formController.getFormsWithParameters);
+
+/**
+ * @swagger
+ * /partners/{partnerId}/forms/parameters:
+ *   post:
+ *     summary: Add a parameter to a partner's form
+ *     tags: [Parameters]
+ */
+router.post('/:partnerId/forms/parameters', parameterController.addParameter);
+
+/**
+ * @swagger
+ * /partners/{partnerId}/forms/parameters/{id}:
+ *   delete:
+ *     summary: Delete a parameter from a partner's form
+ *     tags: [Parameters]
+ */
+router.delete('/:partnerId/forms/parameters/:id', parameterController.deleteParameter);
+
+router.get('/:partnerId/forms/parameters', async (req, res) => {
+  try {
+    const { partnerId } = req.params;
+
+    const forms = await db.Form.findAll({
+      where: { partnerId },
+      include: [{ model: db.Parameter, as: 'parameters' }],
+    });
+
+    if (!forms.length) {
+      return res.status(404).json({ message: 'No parameters found for this partner.' });
+    }
+
+    res.status(200).json(forms);
+  } catch (error) {
+    console.error('Error fetching parameters:', error);
+    res.status(500).json({ message: 'Failed to fetch parameters.' });
+  }
+});
+
 
 module.exports = router;

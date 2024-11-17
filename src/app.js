@@ -12,6 +12,7 @@ const rhythmOffersRoutes = require('./routes/rhythmOffersRoutes');  // Import rh
 const rhythmOfferRequestRoutes = require('./routes/rhythmOfferRequestRoutes');  // Import rhythm offer requests route
 const sparklyRequestRoutes = require('./routes/sparklyRequestRoutes');
 const houseServiceRoutes = require('./routes/houseServiceRoutes');
+
 const dealRoutes = require('./routes/dealRoutes');
 const { sequelize } = require('./models');
 const swaggerUi = require('swagger-ui-express');
@@ -48,6 +49,7 @@ app.use('/api/v2/rhythm-offers', rhythmOffersRoutes);
 app.use('/api/user', rhythmOfferRequestRoutes);
 app.use('/api/partners', sparklyRequestRoutes);
 app.use('/api/house-services', houseServiceRoutes);
+
 app.use('/api/deals', dealRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

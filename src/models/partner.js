@@ -34,6 +34,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 'plannable',
     },
+    form: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false, // No form by default
+    },
   });
 
   Partner.associate = (models) => {
