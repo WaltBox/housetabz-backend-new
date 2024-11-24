@@ -23,6 +23,7 @@ const models = {
   Deal: require('./deal')(sequelize, DataTypes),
   Form: require('./form')(sequelize, DataTypes), // Include the Form model
   Parameter: require('./parameter')(sequelize, DataTypes), // Include the Parameter model
+  Notification: require('./notification')(sequelize, DataTypes),
 };
 
 // Setup associations

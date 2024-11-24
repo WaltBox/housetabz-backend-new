@@ -62,7 +62,12 @@ module.exports = (sequelize, DataTypes) => {
 
 
   User.associate = (models) => {
-    User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' }); // Associate User with House
+    // User has many Charges
+    User.hasMany(models.Charge, { foreignKey: 'userId', as: 'charges' });
+    // User belongs to a House
+    User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' });
+
+    User.hasMany(models.Task, { foreignKey: 'userId', as: 'tasks' }); 
   };
 
   return User;

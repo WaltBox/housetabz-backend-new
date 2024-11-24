@@ -12,7 +12,7 @@ const rhythmOffersRoutes = require('./routes/rhythmOffersRoutes');  // Import rh
 const rhythmOfferRequestRoutes = require('./routes/rhythmOfferRequestRoutes');  // Import rhythm offer requests route
 const sparklyRequestRoutes = require('./routes/sparklyRequestRoutes');
 const houseServiceRoutes = require('./routes/houseServiceRoutes');
-
+const notificationRoutes = require('./routes/notificationRoutes');
 const dealRoutes = require('./routes/dealRoutes');
 const { sequelize } = require('./models');
 const swaggerUi = require('swagger-ui-express');
@@ -49,6 +49,7 @@ app.use('/api/v2/rhythm-offers', rhythmOffersRoutes);
 app.use('/api/user', rhythmOfferRequestRoutes);
 app.use('/api/partners', sparklyRequestRoutes);
 app.use('/api/house-services', houseServiceRoutes);
+app.use('/api', notificationRoutes);
 
 app.use('/api/deals', dealRoutes);
 app.get('/', (req, res) => {
@@ -68,7 +69,7 @@ app.use((err, req, res, next) => {
 });
 
 // Sync database
-sequelize.sync({ force: true })
+sequelize.sync({ alter: true })
   .then(() => {
     console.log('Database synced');
     app.listen(config.port, () => {

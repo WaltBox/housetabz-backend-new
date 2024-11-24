@@ -66,17 +66,19 @@ exports.getAllHouses = async (req, res, next) => {
 exports.getHouse = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Fetch house by ID with users and bills
     const house = await House.findByPk(id, {
       include: [
         {
           model: User,
-          as: 'users',  
+          as: 'users', // Alias defined in the model
           attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],
         },
         {
           model: Bill,
-          as: 'bills', // Use the alias defined in the model
-          attributes: ['id', 'amount', 'paid', 'createdAt', 'updatedAt'],
+          as: 'bills', // Alias defined in the model
+          attributes: ['id', 'name', 'amount', 'paid', 'createdAt', 'updatedAt'], // Include `name`
         },
       ],
     });
@@ -87,6 +89,7 @@ exports.getHouse = async (req, res, next) => {
 
     res.status(200).json(house);
   } catch (error) {
+    console.error('Error fetching house:', error);
     next(error);
   }
 };

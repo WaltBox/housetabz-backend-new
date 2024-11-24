@@ -2,26 +2,42 @@ const db = require('../models');
 const Parameter = db.Parameter;
 const Form = db.Form;
 
-// Add a new parameter to a form
 exports.addParameter = async (req, res) => {
-  try {
-    const { name, type, choices, priceEffect, formId } = req.body;
-
-    // Ensure the form exists
-    const form = await Form.findByPk(formId);
-    if (!form) {
-      return res.status(404).json({ message: 'Form not found' });
+    try {
+      let { name, type, choices, priceEffect, formId } = req.body;
+  
+      console.log('Received parameter data:', req.body); // Debugging
+  
+      // Map 'select' to 'dropdown'
+      if (type === 'select') {
+        type = 'dropdown';
+      }
+  
+      if (!name || !type || !formId) {
+        return res.status(400).json({ message: 'Name, type, and formId are required.' });
+      }
+  
+      if (type === 'dropdown' && (!choices || choices.trim() === '')) {
+        return res.status(400).json({ message: 'Choices are required for dropdown type.' });
+      }
+  
+      const parameter = await Parameter.create({
+        name,
+        type,
+        choices: type === 'dropdown' ? choices : null,
+        priceEffect: priceEffect || null,
+        formId,
+      });
+  
+      res.status(201).json({ message: 'Parameter added successfully', parameter });
+    } catch (error) {
+      console.error('Error adding parameter:', error);
+      res.status(500).json({ message: 'Failed to add parameter.' });
     }
-
-    // Create the parameter
-    const parameter = await Parameter.create({ name, type, choices, priceEffect, formId });
-    res.status(201).json({ message: 'Parameter added successfully', parameter });
-  } catch (error) {
-    console.error('Error adding parameter:', error);
-    res.status(500).json({ message: 'Failed to add parameter' });
-  }
-};
-
+  };
+  
+  
+  
 // Delete a parameter
 exports.deleteParameter = async (req, res) => {
   try {

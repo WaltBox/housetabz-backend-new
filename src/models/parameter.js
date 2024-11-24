@@ -1,4 +1,3 @@
-// models/parameter.js
 module.exports = (sequelize, DataTypes) => {
     const Parameter = sequelize.define('Parameter', {
       name: {
@@ -6,15 +5,15 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       type: {
-        type: DataTypes.ENUM('text', 'number', 'select'),
+        type: DataTypes.STRING,
         allowNull: false,
       },
       choices: {
-        type: DataTypes.STRING, // Comma-separated values for dropdown
-        allowNull: true,
+        type: DataTypes.TEXT, // Supports longer strings like dropdown choices
+        allowNull: true, // Optional for non-dropdown types
       },
       priceEffect: {
-        type: DataTypes.DECIMAL,
+        type: DataTypes.INTEGER,
         allowNull: true,
       },
       formId: {
@@ -24,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
     });
   
     Parameter.associate = (models) => {
-      Parameter.belongsTo(models.Form, { foreignKey: 'formId', as: 'form' });
+      Parameter.belongsTo(models.Form, { foreignKey: 'formId' });
     };
   
     return Parameter;

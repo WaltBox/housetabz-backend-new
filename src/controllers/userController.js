@@ -1,4 +1,4 @@
-const { User, House } = require('../models');
+const { User, House, Charge, Task} = require('../models');
 
 // Create a new user
 exports.createUser = async (req, res, next) => {
@@ -30,21 +30,42 @@ exports.getAllUsers = async (req, res, next) => {
 };
 
 // Get a single user with house details
+// controllers/userController.js
+
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
-      attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit'], // Fetch user attributes
-      include: {
-        model: House,  // Include house details
-        as: 'house',   // Ensure alias matches model association
-        attributes: ['id', 'name'],  // Only include id and name for house
-        balance: ['balance'] // Include balance for user
-      }
+      attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit'],
+      include: [
+        {
+          model: House,
+          as: 'house', // Alias must match the User -> House association
+          attributes: ['id', 'name'],
+        },
+        {
+          model: Charge,
+          as: 'charges', // Alias must match the User -> Charge association
+          attributes: ['id', 'amount', 'paid', 'billId', 'name'], // Include `name` field
+          include: [
+            {
+              model: require('../models').Bill, // Include the associated Bill
+              attributes: ['id', 'name'], // Include the Bill `name`
+            },
+          ],
+        },
+        {
+          model: Task, // Include tasks associated with the user
+          as: 'tasks',
+          attributes: ['id', 'type', 'status', 'response', 'createdAt', 'updatedAt'],
+        },
+      ],
     });
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(user); // Return user details including house
+
+    res.json(user);
   } catch (error) {
     console.error('Error fetching user:', error);
     next(error);

@@ -9,7 +9,8 @@ const houseController = require('../controllers/houseController');
  *   description: API for managing houses
  */
 
-/**
+/*
+
  * @swagger
  * /houses:
  *   post:
