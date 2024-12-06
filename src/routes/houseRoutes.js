@@ -9,8 +9,7 @@ const houseController = require('../controllers/houseController');
  *   description: API for managing houses
  */
 
-/*
-
+/**
  * @swagger
  * /houses:
  *   post:
@@ -48,6 +47,7 @@ const houseController = require('../controllers/houseController');
  *         description: Bad request
  */
 router.post('/', houseController.createHouse);
+
 
 /**
  * @swagger
