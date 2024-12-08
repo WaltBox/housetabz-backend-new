@@ -1,12 +1,28 @@
 const { Sequelize, DataTypes } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 const config = require('../config/config');
 
+// Path to the SSL certificate in the `certs` folder at the root
+const sslCertPath = path.join(__dirname, '../../certs/us-east-1-bundle.pem');
+
+// Set up SSL options for Sequelize
+let sslOptions = { require: true, rejectUnauthorized: false }; // Default options
+if (fs.existsSync(sslCertPath)) {
+  console.log('SSL certificate found. Using it for database connection.');
+  sslOptions = { ...sslOptions, ca: fs.readFileSync(sslCertPath).toString() };
+} else {
+  console.warn(`SSL certificate file not found at ${sslCertPath}. Proceeding without a CA file.`);
+}
+
+// Initialize Sequelize
 const sequelize = new Sequelize(config.databaseUrl, {
   dialect: 'postgres',
-  logging: console.log,
+  dialectOptions: { ssl: sslOptions },
+  logging: console.log, // Enable query logging
 });
 
-// Import models and initialize them with sequelize and DataTypes
+// Import models
 const models = {
   User: require('./user')(sequelize, DataTypes),
   House: require('./house')(sequelize, DataTypes),
@@ -26,18 +42,16 @@ const models = {
   Notification: require('./notification')(sequelize, DataTypes),
 };
 
-// Setup associations
+// Setup model associations
 Object.values(models).forEach((model) => {
   if (model.associate) {
-    model.associate(models); // Call the associate function if defined
+    model.associate(models);
   }
 });
 
-// Add Sequelize and sequelize instance to the exported db object
-const db = {
+// Export models and Sequelize instance
+module.exports = {
   ...models,
   sequelize,
   Sequelize,
 };
-
-module.exports = db;

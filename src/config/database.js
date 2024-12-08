@@ -1,28 +1,23 @@
-const fs = require('fs');
-const path = require('path');
 const { Sequelize } = require('sequelize');
-const config = require('./config');
+const config = require('../config/config');
 
-const sslCertPath = path.join(__dirname, 'certs', 'us-east-1-bundle.pem');
-
+// Initialize Sequelize without SSL
 const sequelize = new Sequelize(config.databaseUrl, {
   dialect: 'postgres',
-  dialectOptions: {
-    ssl: {
-      require: true,
-      rejectUnauthorized: false, // Temporarily for debugging
-      ca: fs.readFileSync(sslCertPath).toString(),
-    },
-  },
-  pool: {
-    max: 5,
-    min: 0,
-    acquire: 30000,
-    idle: 10000
-  },
-  logging: console.log,
+  dialectOptions: {}, // No SSL options
+  logging: console.log, // Enable logging for debugging
 });
 
-
+// Test connection when the module is loaded
+(async () => {
+  try {
+    console.log(`Connecting to database at: ${config.databaseUrl}`);
+    await sequelize.authenticate();
+    console.log('Database connection established successfully.');
+  } catch (error) {
+    console.error('Unable to connect to the database:', error.message);
+    process.exit(1); // Exit on failure
+  }
+})();
 
 module.exports = sequelize;
