@@ -1,9 +1,17 @@
-require('dotenv').config(); // Load environment variables from .env file
-
-console.log(`Connecting to database at: ${process.env.DATABASE_URL}`);
+require('dotenv').config();
 
 module.exports = {
-  port: process.env.PORT || 3000, // Port for the server to run on
-  nodeEnv: process.env.NODE_ENV || 'development', // Node environment (e.g., development, production)
-  databaseUrl: process.env.DATABASE_URL || 'postgres://postgres:6490Hill@localhost:5432/housetabz_db', // Database connection URL
+  databaseUrl: process.env.DATABASE_URL,
+  port: process.env.PORT || 3004, // Default to 3004 if PORT is not set
+  nodeEnv: process.env.NODE_ENV || 'development', // Default to development
+  development: {
+    url: process.env.DATABASE_URL,
+    dialect: 'postgres',
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,
+      },
+    },
+  },
 };

@@ -1,13 +1,11 @@
 const db = require('../models');
 const Partner = db.Partner;
-const Form = db.Form;
-const Parameter = db.Parameter;
 const axios = require('axios'); // For external API requests
 
 // Create a new partner
 exports.createPartner = async (req, res, next) => {
   try {
-    const { name, description, logo, marketplace_cover, company_cover, about, important_information, type } = req.body;
+    const { name, description, logo, marketplace_cover, company_cover, about, important_information, how_to, link, type } = req.body;
 
     if (!['plannable', 'formable'].includes(type)) {
       return res.status(400).json({ message: 'Invalid type. Allowed values are plannable or formable.' });
@@ -21,6 +19,8 @@ exports.createPartner = async (req, res, next) => {
       company_cover,
       about,
       important_information,
+      how_to,
+      link,
       type,
     });
 
@@ -57,7 +57,6 @@ exports.getPartnerWithOffers = async (req, res, next) => {
     let serviceOffers = [];
     if (partner.type === 'plannable' && partner.name === 'Rhythm Energy') {
       try {
-        // Fetch Rhythm Energy plans from localhost:3000
         const response = await axios.get('http://localhost:3000/api/v2/offer-snapshots');
         serviceOffers = response.data; // Assuming this returns the plans
       } catch (apiError) {
@@ -66,17 +65,60 @@ exports.getPartnerWithOffers = async (req, res, next) => {
       }
     }
 
-    res.status(200).json({ partner, serviceOffers });
+    // Include `how_to` and `link` fields in the partner object
+    const response = {
+      partner: {
+        id: partner.id,
+        name: partner.name,
+        description: partner.description,
+        logo: partner.logo,
+        marketplace_cover: partner.marketplace_cover,
+        company_cover: partner.company_cover,
+        about: partner.about,
+        important_information: partner.important_information,
+        how_to: partner.how_to, // Included how_to
+        link: partner.link, // Included link
+        type: partner.type,
+        form: partner.type === 'formable', // Conditional field
+        createdAt: partner.createdAt,
+        updatedAt: partner.updatedAt,
+      },
+      serviceOffers,
+    };
+
+    res.status(200).json(response);
   } catch (error) {
     console.error('Error fetching partner:', error);
     next(error);
   }
 };
+
+
+// Get partner by ID
+exports.getPartnerById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch the partner details
+    const partner = await Partner.findByPk(id);
+
+    if (!partner) {
+      return res.status(404).json({ error: 'Partner not found' });
+    }
+
+    res.status(200).json(partner);
+  } catch (error) {
+    console.error('Error fetching partner by ID:', error);
+    next(error);
+  }
+};
+
+
 // Update a partner
 exports.updatePartner = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { about, important_information, type } = req.body;
+    const { about, important_information, how_to, link, type } = req.body;
 
     if (type && !['plannable', 'formable'].includes(type)) {
       return res.status(400).json({ message: 'Invalid type. Allowed values are plannable or formable.' });
@@ -87,7 +129,7 @@ exports.updatePartner = async (req, res, next) => {
       return res.status(404).json({ message: 'Partner not found' });
     }
 
-    const updateData = { about, important_information };
+    const updateData = { about, important_information, how_to, link };
     if (type) updateData.type = type;
 
     if (req.files) {

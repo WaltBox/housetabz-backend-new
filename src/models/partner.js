@@ -39,6 +39,14 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: false, // No form by default
     },
+    link: {
+      type: DataTypes.STRING,
+      allowNull: true, // Optional field for now
+    },
+    how_to: {
+      type: DataTypes.STRING,
+      allowNull: true, // Optional field for now
+    },
   });
 
   Partner.associate = (models) => {

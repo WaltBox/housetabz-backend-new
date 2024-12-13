@@ -15,14 +15,16 @@ if (fs.existsSync(sslCertPath)) {
   console.warn(`SSL certificate file not found at ${sslCertPath}. Proceeding without a CA file.`);
 }
 
-// Initialize Sequelize
-const sequelize = new Sequelize(config.databaseUrl, {
+// Initialize Sequelize instance
+const sequelize = new Sequelize(config.development.url, {
   dialect: 'postgres',
   dialectOptions: { ssl: sslOptions },
-  logging: console.log, // Enable query logging
+  logging: console.log,
 });
 
-// Import models
+console.log('Sequelize initialized successfully.');
+
+// Import models AFTER Sequelize instance is defined
 const models = {
   User: require('./user')(sequelize, DataTypes),
   House: require('./house')(sequelize, DataTypes),
@@ -42,7 +44,7 @@ const models = {
   Notification: require('./notification')(sequelize, DataTypes),
 };
 
-// Setup model associations
+// Setup model associations AFTER models are defined
 Object.values(models).forEach((model) => {
   if (model.associate) {
     model.associate(models);

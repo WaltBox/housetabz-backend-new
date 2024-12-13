@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+// At the very top of app.js and config.js
+require('dotenv').config();
+
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swaggerConfig');
 const { sequelize } = require('./models'); // Import Sequelize instance
