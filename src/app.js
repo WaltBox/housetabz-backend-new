@@ -23,7 +23,9 @@ const sparklyRequestRoutes = require('./routes/sparklyRequestRoutes');
 const houseServiceRoutes = require('./routes/houseServiceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const dealRoutes = require('./routes/dealRoutes');
-
+const waitListRoutes = require('./routes/waitListRoutes');
+const partnerFormRoutes = require('./routes/partnerFormRoutes');
+const contactRoutes = require('./routes/contactRoutes');
 // Initialize Express app
 const app = express();
 
@@ -52,7 +54,9 @@ app.use('/api/partners', sparklyRequestRoutes);
 app.use('/api/house-services', houseServiceRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/deals', dealRoutes);
-
+app.use('/api/waitlist', waitListRoutes);
+app.use('/api/partner-forms', partnerFormRoutes);
+app.use('/api/contact', contactRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

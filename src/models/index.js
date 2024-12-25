@@ -42,6 +42,9 @@ const models = {
   Form: require('./form')(sequelize, DataTypes), // Include the Form model
   Parameter: require('./parameter')(sequelize, DataTypes), // Include the Parameter model
   Notification: require('./notification')(sequelize, DataTypes),
+  WaitList: require('./waitList')(sequelize, DataTypes),
+  PartnerForm: require('./partnerForm')(sequelize, DataTypes),  
+  Contact: require('./contact')(sequelize, DataTypes),
 };
 
 // Setup model associations AFTER models are defined
