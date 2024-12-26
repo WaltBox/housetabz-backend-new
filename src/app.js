@@ -26,11 +26,17 @@ const dealRoutes = require('./routes/dealRoutes');
 const waitListRoutes = require('./routes/waitListRoutes');
 const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
+
 // Initialize Express app
 const app = express();
 
 // Middleware
-app.use(cors());
+// Configure CORS
+app.use(cors({
+  origin: 'https://main.d2xw2ecdsvbv94.amplifyapp.com/', // Replace '*' with your frontend domain for production, e.g., 'https://your-frontend.com'
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
+}));
+
 app.use(express.json());
 app.use(morgan('dev'));
 
@@ -57,6 +63,7 @@ app.use('/api/deals', dealRoutes);
 app.use('/api/waitlist', waitListRoutes);
 app.use('/api/partner-forms', partnerFormRoutes);
 app.use('/api/contact', contactRoutes);
+
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
