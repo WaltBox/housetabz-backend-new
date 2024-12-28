@@ -33,7 +33,7 @@ const app = express();
 // Middleware
 // Configure CORS
 app.use(cors({
-  origin: 'https://main.d2xw2ecdsvbv94.amplifyapp.com/', // Replace '*' with your frontend domain for production, e.g., 'https://your-frontend.com'
+  origin: 'https://www.housetabz.com', // Replace '*' with your frontend domain for production, e.g., 'https://your-frontend.com'
   methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
 }));
 
