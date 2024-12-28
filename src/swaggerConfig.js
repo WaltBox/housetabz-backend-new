@@ -11,7 +11,7 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'http://housetabz-back-env.eba-k7z4g8fa.us-east-1.elasticbeanstalk.com/api',
+        url: 'https://api.housetabz.com/api',
       },
     ],
   },
