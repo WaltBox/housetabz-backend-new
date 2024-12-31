@@ -29,18 +29,18 @@ const models = {
   User: require('./user')(sequelize, DataTypes),
   House: require('./house')(sequelize, DataTypes),
   Partner: require('./partner')(sequelize, DataTypes),
-  ServicePlan: require('./servicePlan')(sequelize, DataTypes),
+
   ServiceRequestBundle: require('./serviceRequestBundle')(sequelize, DataTypes),
   Bill: require('./bill')(sequelize, DataTypes),
   Charge: require('./charge')(sequelize, DataTypes),
   Task: require('./task')(sequelize, DataTypes),
-  RhythmOfferRequest: require('./rhythmOfferRequest')(sequelize, DataTypes),
-  SparklyRequest: require('./sparklyRequest')(sequelize, DataTypes),
-  CustomerValidation: require('./customerValidation')(sequelize, DataTypes),
+ 
+
+ 
   HouseService: require('./houseService')(sequelize, DataTypes),
   Deal: require('./deal')(sequelize, DataTypes),
-  Form: require('./form')(sequelize, DataTypes), // Include the Form model
-  Parameter: require('./parameter')(sequelize, DataTypes), // Include the Parameter model
+
+
   Notification: require('./notification')(sequelize, DataTypes),
   WaitList: require('./waitList')(sequelize, DataTypes),
   PartnerForm: require('./partnerForm')(sequelize, DataTypes),  

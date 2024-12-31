@@ -12,21 +12,20 @@ const config = require('./config/config');
 // Import route files
 const userRoutes = require('./routes/userRoutes');
 const houseRoutes = require('./routes/houseRoutes');
-const partnerRoutes = require('./routes/partnerRoutes');
+
 const serviceRequestBundleRoutes = require('./routes/serviceRequestBundleRoutes');
 const billRoutes = require('./routes/billRoutes');
 const chargeRoutes = require('./routes/chargeRoutes');
 const taskRoutes = require('./routes/taskRoutes');
-const rhythmOffersRoutes = require('./routes/rhythmOffersRoutes');
-const rhythmOfferRequestRoutes = require('./routes/rhythmOfferRequestRoutes');
-const sparklyRequestRoutes = require('./routes/sparklyRequestRoutes');
+
+
 const houseServiceRoutes = require('./routes/houseServiceRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const dealRoutes = require('./routes/dealRoutes');
 const waitListRoutes = require('./routes/waitListRoutes');
 const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
-
+const partnerRoutes = require('./routes/partnerRoutes');
 // Initialize Express app
 const app = express();
 
@@ -54,9 +53,8 @@ app.use('/api', serviceRequestBundleRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/houses', billRoutes);
 app.use('/api/users', chargeRoutes);
-app.use('/api/v2/rhythm-offers', rhythmOffersRoutes);
-app.use('/api/user', rhythmOfferRequestRoutes);
-app.use('/api/partners', sparklyRequestRoutes);
+
+
 app.use('/api/house-services', houseServiceRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/deals', dealRoutes);

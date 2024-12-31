@@ -1,21 +1,20 @@
 const express = require('express');
-const partnerController = require('../controllers/partnerController');
 const router = express.Router();
+const partnerController = require('../controllers/partnerController');
 
 /**
  * @swagger
  * tags:
  *   name: Partners
- *   description: API for managing partners
+ *   description: API endpoints for managing partners
  */
 
 /**
  * @swagger
- * /api/partners:
+ * /partners:
  *   post:
  *     summary: Create a new partner
- *     tags:
- *       - Partners
+ *     tags: [Partners]
  *     requestBody:
  *       required: true
  *       content:
@@ -25,7 +24,9 @@ const router = express.Router();
  *             properties:
  *               name:
  *                 type: string
- *               description:
+ *               about:
+ *                 type: string
+ *               important_information:
  *                 type: string
  *               logo:
  *                 type: string
@@ -33,17 +34,16 @@ const router = express.Router();
  *                 type: string
  *               company_cover:
  *                 type: string
- *               about:
+ *               avg_price:
+ *                 type: number
+ *               registration_code:
  *                 type: string
- *               important_information:
+ *               person_of_contact:
  *                 type: string
- *               how_to:
+ *               phone_number:
  *                 type: string
- *               link:
+ *               email:
  *                 type: string
- *               type:
- *                 type: string
- *                 enum: [plannable, formable]
  *     responses:
  *       201:
  *         description: Partner created successfully
@@ -54,11 +54,10 @@ router.post('/', partnerController.createPartner);
 
 /**
  * @swagger
- * /api/partners:
+ * /partners:
  *   get:
  *     summary: Get all partners
- *     tags:
- *       - Partners
+ *     tags: [Partners]
  *     responses:
  *       200:
  *         description: List of partners
@@ -67,96 +66,33 @@ router.post('/', partnerController.createPartner);
  *             schema:
  *               type: array
  *               items:
- *                 type: object
+ *                 $ref: '#/components/schemas/Partner'
  */
 router.get('/', partnerController.getAllPartners);
 
 /**
  * @swagger
- * /api/partners/{id}:
+ * /partners/{id}:
  *   get:
- *     summary: Get a partner by ID
- *     tags:
- *       - Partners
+ *     summary: Get partner by ID
+ *     tags: [Partners]
  *     parameters:
  *       - in: path
  *         name: id
- *         required: true
  *         schema:
  *           type: integer
- *         description: ID of the partner to fetch
+ *         required: true
+ *         description: The partner ID
  *     responses:
  *       200:
- *         description: Partner details
+ *         description: Partner data
  *         content:
  *           application/json:
  *             schema:
- *               type: object
+ *               $ref: '#/components/schemas/Partner'
  *       404:
  *         description: Partner not found
  */
 router.get('/:id', partnerController.getPartnerById);
-
-/**
- * @swagger
- * /api/partners/{id}/offers:
- *   get:
- *     summary: Get partner by ID with offers or forms
- *     tags:
- *       - Partners
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: ID of the partner
- *     responses:
- *       200:
- *         description: Partner and service offers
- *       404:
- *         description: Partner not found
- */
-router.get('/:id/offers', partnerController.getPartnerWithOffers);
-
-/**
- * @swagger
- * /api/partners/{id}:
- *   patch:
- *     summary: Update a partner by ID
- *     tags:
- *       - Partners
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: ID of the partner
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               about:
- *                 type: string
- *               important_information:
- *                 type: string
- *               how_to:
- *                 type: string
- *               link:
- *                 type: string
- *               type:
- *                 type: string
- *                 enum: [plannable, formable]
- *     responses:
- *       200:
- *         description: Partner updated successfully
- *       404:
- *         description: Partner not found
- */
-router.patch('/:id', partnerController.updatePartner);
 
 module.exports = router;
