@@ -1,19 +1,13 @@
 const express = require('express');
-const router = express.Router();
 const partnerController = require('../controllers/partnerController');
+const router = express.Router();
 
 /**
  * @swagger
- * tags:
- *   name: Partners
- *   description: API endpoints for managing partners
- */
-
-/**
- * @swagger
- * /partners:
+ * /partners/create:
  *   post:
  *     summary: Create a new partner
+ *     description: Registers a new partner and generates API keys.
  *     tags: [Partners]
  *     requestBody:
  *       required: true
@@ -24,75 +18,49 @@ const partnerController = require('../controllers/partnerController');
  *             properties:
  *               name:
  *                 type: string
- *               about:
- *                 type: string
- *               important_information:
- *                 type: string
- *               logo:
- *                 type: string
- *               marketplace_cover:
- *                 type: string
- *               company_cover:
- *                 type: string
- *               avg_price:
- *                 type: number
+ *                 example: "Rhythm Energy"
  *               registration_code:
  *                 type: string
- *               person_of_contact:
- *                 type: string
- *               phone_number:
- *                 type: string
- *               email:
- *                 type: string
+ *                 example: "RH-1234"
  *     responses:
  *       201:
  *         description: Partner created successfully
- *       400:
- *         description: Invalid input
  */
-router.post('/', partnerController.createPartner);
+router.post('/create', partnerController.createPartner);
 
 /**
  * @swagger
- * /partners:
- *   get:
- *     summary: Get all partners
+ * /partners/stage-authorization:
+ *   post:
+ *     summary: Stage a service authorization
+ *     description: Stages authorization for a service.
  *     tags: [Partners]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               houseId:
+ *                 type: integer
+ *                 example: 1
+ *               userId:
+ *                 type: integer
+ *                 example: 101
+ *               transactionId:
+ *                 type: string
+ *                 example: "TXN-98765"
+ *               serviceName:
+ *                 type: string
+ *                 example: "Electricity Plan"
+ *               pricing:
+ *                 type: number
+ *                 example: 99.99
  *     responses:
- *       200:
- *         description: List of partners
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Partner'
+ *       201:
+ *         description: Authorization staged successfully
  */
-router.get('/', partnerController.getAllPartners);
-
-/**
- * @swagger
- * /partners/{id}:
- *   get:
- *     summary: Get partner by ID
- *     tags: [Partners]
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *         description: The partner ID
- *     responses:
- *       200:
- *         description: Partner data
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Partner'
- *       404:
- *         description: Partner not found
- */
-router.get('/:id', partnerController.getPartnerById);
+router.post('/stage-authorization', partnerController.stageAuthorization);
 
 module.exports = router;

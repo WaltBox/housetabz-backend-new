@@ -1,5 +1,6 @@
-// src/swaggerConfig.js
 const swaggerJsDoc = require('swagger-jsdoc');
+
+const isLocal = process.env.NODE_ENV === 'development_local';
 
 const swaggerOptions = {
   swaggerDefinition: {
@@ -11,7 +12,12 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'https://api.housetabz.com/api',
+        url: 'http://localhost:3004/api', // Local development server
+        description: 'Local development server',
+      },
+      {
+        url: 'https://api.housetabz.com/api', // Production server
+        description: 'Production server',
       },
     ],
   },

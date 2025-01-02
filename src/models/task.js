@@ -1,37 +1,42 @@
 module.exports = (sequelize, DataTypes) => {
-    const Task = sequelize.define('Task', {
-      type: {
-        type: DataTypes.STRING,
-        allowNull: false,  // e.g., 'service request', 'payment'
+  const Task = sequelize.define('Task', {
+    type: {
+      type: DataTypes.STRING, // e.g., 'service_request'
+      allowNull: false,
+    },
+    status: {
+      type: DataTypes.BOOLEAN, // true if completed
+      defaultValue: false,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    serviceRequestBundleId: {
+      type: DataTypes.INTEGER,
+      allowNull: true, // Nullable for non-service-request tasks
+      references: {
+        model: 'ServiceRequestBundles',
+        key: 'id',
       },
-      status: {
-        type: DataTypes.BOOLEAN,  // Change status to a boolean
-        allowNull: false,
-        defaultValue: false,  // Default to false
-      },
-      userId: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-      },
-      serviceRequestBundleId: {  // Only for tasks related to service requests
-        type: DataTypes.INTEGER,
-        allowNull: true,
-      },
-      response: {  // New column for response ('accepted' or 'rejected'). This will be used primarily for accepting or rejecting service requests
-        type: DataTypes.STRING,
-        allowNull: true,
-        validate: {
-          isIn: [['accepted', 'rejected']],  // Restrict values to 'accepted' or 'rejected'
-        }
-      },
+      onDelete: 'CASCADE',
+    },
+    response: {
+      type: DataTypes.STRING, // 'accepted' or 'rejected'
+      allowNull: true,
+    },
+  });
+
+  Task.associate = (models) => {
+    Task.belongsTo(models.ServiceRequestBundle, {
+      foreignKey: 'serviceRequestBundleId',
+      as: 'serviceRequestBundle',
     });
-  
-    Task.associate = (models) => {
-      Task.belongsTo(models.User, { foreignKey: 'userId' });
-    //   Task.belongsTo(models.ServiceRequestBundle, { foreignKey: 'serviceRequestBundleId', allowNull: true });
-      Task.belongsTo(models.ServiceRequestBundle, { foreignKey: 'serviceRequestBundleId', as: 'serviceRequestBundle' });
-    };
-  
-    return Task;
+    Task.belongsTo(models.User, {
+      foreignKey: 'userId',
+      as: 'user',
+    });
   };
-  
+
+  return Task;
+};

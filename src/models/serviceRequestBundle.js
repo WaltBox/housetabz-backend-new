@@ -1,75 +1,45 @@
-const { Op } = require('sequelize'); // Import Sequelize Op
-
 module.exports = (sequelize, DataTypes) => {
   const ServiceRequestBundle = sequelize.define('ServiceRequestBundle', {
-    status: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      defaultValue: 'pending',
-    },
     houseId: {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: false, // User who created the bundle
     },
-    roommate_accepted: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
+    stagedRequestId: {
+      type: DataTypes.INTEGER,
+      allowNull: false, // Link to the associated StagedRequest
+    },
+    status: {
+      type: DataTypes.STRING, // 'pending', 'accepted', 'declined'
+      allowNull: false,
+      defaultValue: 'pending',
     },
   });
 
-  // Associations
   ServiceRequestBundle.associate = (models) => {
-    // A bundle has many tasks
-    ServiceRequestBundle.hasMany(models.Task, {
-      foreignKey: 'serviceRequestBundleId',
-      as: 'tasks',
+    ServiceRequestBundle.belongsTo(models.StagedRequest, {
+      foreignKey: 'stagedRequestId',
+      as: 'stagedRequest',
     });
-
-    // A bundle belongs to a house
-    ServiceRequestBundle.belongsTo(models.House, {
-      foreignKey: 'houseId',
-    });
-
-    // A bundle belongs to a user (submitter)
-    ServiceRequestBundle.belongsTo(models.User, {
-      foreignKey: 'userId',
-      as: 'submitter',
-    });
-
-   
   };
 
-  // Hook: After creating a ServiceRequestBundle, create Tasks for each roommate
-  ServiceRequestBundle.afterCreate(async (bundle, options) => {
-    const { User, Task } = sequelize.models;
-
-    try {
-      // Fetch all users in the same house, excluding the request creator
-      const roommates = await User.findAll({
-        where: {
-          houseId: bundle.houseId,
-          id: { [Op.ne]: bundle.userId }, // Exclude the user who created the bundle
-        },
-      });
-
-      // Prepare tasks for each roommate
-      const tasks = roommates.map((roommate) => ({
-        userId: roommate.id,
-        serviceRequestBundleId: bundle.id,
-        type: 'service request',
-        status: false, // Not accepted initially
-        response: null, // No response yet (can be 'accepted' or 'rejected')
-      }));
-
-      // Bulk create tasks
-      await Task.bulkCreate(tasks);
-    } catch (error) {
-      console.error('Error creating tasks:', error);
-      throw error; // Ensure the error bubbles up
+  // Hook to update the StagedRequest status
+  ServiceRequestBundle.afterUpdate(async (bundle, options) => {
+    if (bundle.status === 'accepted') {
+      const { StagedRequest } = sequelize.models;
+      try {
+        // Update the associated StagedRequest
+        await StagedRequest.update(
+          { status: 'accepted' },
+          { where: { id: bundle.stagedRequestId } }
+        );
+      } catch (error) {
+        console.error('Error updating StagedRequest status:', error);
+        throw error;
+      }
     }
   });
 

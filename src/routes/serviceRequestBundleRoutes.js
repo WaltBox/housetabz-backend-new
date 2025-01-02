@@ -1,14 +1,13 @@
 const express = require('express');
-const router = express.Router();
 const serviceRequestBundleController = require('../controllers/serviceRequestBundleController');
+const router = express.Router();
 
-// Swagger documentation for creating a service request bundle
 /**
  * @swagger
  * /service-request-bundle:
  *   post:
  *     summary: Create a service request bundle
- *     description: Creates a new service request bundle for the house.
+ *     description: Creates a new service request bundle.
  *     tags: [Service Request Bundles]
  *     requestBody:
  *       required: true
@@ -17,98 +16,102 @@ const serviceRequestBundleController = require('../controllers/serviceRequestBun
  *           schema:
  *             type: object
  *             properties:
- *               houseId:
- *                 type: integer
- *                 description: ID of the house making the request
- *                 example: 1
  *               userId:
  *                 type: integer
- *                 description: ID of the user submitting the request
- *                 example: 2
- *               status:
- *                 type: string
- *                 description: Status of the service request
- *                 example: "pending"
+ *                 example: 101
+ *               stagedRequestId:
+ *                 type: integer
+ *                 example: 1001
  *     responses:
  *       201:
  *         description: Service request bundle created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Service request bundle created successfully"
- *                 serviceRequestBundle:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       description: Unique identifier for the service request bundle
- *                     houseId:
- *                       type: integer
- *                       description: ID of the house associated with the request
- *                     userId:
- *                       type: integer
- *                       description: ID of the user who submitted the request
- *                     status:
- *                       type: string
- *                       description: Status of the service request
- *                       example: "pending"
  */
-
-// POST route to create a service request bundle
 router.post('/service-request-bundle', serviceRequestBundleController.createServiceRequestBundle);
 
-// Swagger documentation for retrieving service request bundles
 /**
  * @swagger
  * /service-request-bundle:
  *   get:
- *     summary: Retrieve service request bundles
- *     description: Fetches all service request bundles for a given house.
+ *     summary: Fetch all service request bundles
+ *     description: Retrieves all service request bundles or filters by houseId.
  *     tags: [Service Request Bundles]
  *     parameters:
  *       - in: query
  *         name: houseId
  *         schema:
  *           type: integer
- *           example: 1
- *         required: true
- *         description: ID of the house to fetch service request bundles for
+ *         description: The house ID to filter bundles
  *     responses:
  *       200:
- *         description: Service request bundles retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Service request bundles retrieved successfully"
- *                 serviceRequests:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: integer
- *                         description: Unique identifier for the service request bundle
- *                       houseId:
- *                         type: integer
- *                         description: ID of the house associated with the request
- *                       userId:
- *                         type: integer
- *                         description: ID of the user who submitted the request
- *                       status:
- *                         type: string
- *                         description: Status of the service request
- *                         example: "pending"
+ *         description: Successfully retrieved service request bundles
  */
-
-// GET route for retrieving service request bundles
 router.get('/service-request-bundle', serviceRequestBundleController.getServiceRequestBundles);
+
+/**
+ * @swagger
+ * /service-request-bundle/{id}:
+ *   get:
+ *     summary: Fetch a specific service request bundle
+ *     description: Retrieves a single service request bundle by ID.
+ *     tags: [Service Request Bundles]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved service request bundle
+ */
+router.get('/service-request-bundle/:id', serviceRequestBundleController.getServiceRequestBundleById);
+
+/**
+ * @swagger
+ * /service-request-bundle/{id}:
+ *   patch:
+ *     summary: Update the status of a service request bundle
+ *     description: Updates the status of a service request bundle.
+ *     tags: [Service Request Bundles]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [pending, authorized, declined]
+ *     responses:
+ *       200:
+ *         description: Successfully updated service request bundle
+ */
+router.patch('/service-request-bundle/:id', serviceRequestBundleController.updateServiceRequestBundle);
+
+/**
+ * @swagger
+ * /service-request-bundle/{id}:
+ *   delete:
+ *     summary: Delete a service request bundle
+ *     description: Deletes a service request bundle by ID.
+ *     tags: [Service Request Bundles]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Successfully deleted service request bundle
+ */
+router.delete('/service-request-bundle/:id', serviceRequestBundleController.deleteServiceRequestBundle);
 
 module.exports = router;

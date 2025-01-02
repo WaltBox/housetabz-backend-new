@@ -2,17 +2,25 @@ const { Sequelize } = require('sequelize');
 const config = require('../config/config');
 require('dotenv').config(); // Ensure that dotenv is configured here as well.
 
-// Initialize Sequelize without SSL
-const sequelize = new Sequelize(config.development.url, {
-  dialect: 'postgres',
-  dialectOptions: {}, // No SSL options
-  logging: console.log, // Enable logging for debugging
+const environment = process.env.NODE_ENV || 'development'; // Default to 'development'
+const envConfig = config[environment]; // Dynamically select the configuration
+
+if (!envConfig || !envConfig.url) {
+  console.error(`Invalid or missing configuration for NODE_ENV: ${environment}`);
+  process.exit(1);
+}
+
+// Initialize Sequelize with dynamic configuration
+const sequelize = new Sequelize(envConfig.url, {
+  dialect: envConfig.dialect,
+  dialectOptions: envConfig.dialectOptions || {}, // Include SSL if defined
+  logging: envConfig.logging || false, // Use environment-specific logging
 });
 
 // Test connection when the module is loaded
 (async () => {
   try {
-    console.log(`Connecting to database at: ${config.development.url}`);
+    console.log(`Connecting to database at: ${envConfig.url}`);
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
   } catch (error) {

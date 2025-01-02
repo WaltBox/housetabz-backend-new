@@ -1,8 +1,7 @@
 const express = require('express');
+const taskController = require('../controllers/taskController'); // Correct path to the taskController
 const router = express.Router();
-const taskController = require('../controllers/taskController'); // Ensure correct path
 
-// Swagger documentation for getting all tasks
 /**
  * @swagger
  * /tasks:
@@ -12,23 +11,8 @@ const taskController = require('../controllers/taskController'); // Ensure corre
  *     responses:
  *       200:
  *         description: A list of tasks
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   type:
- *                     type: string
- *                   status:
- *                     type: boolean
- *                   userId:
- *                     type: integer
  */
-router.get('/', taskController.getTasks); // Check this function
+router.get('/', taskController.getTasks);
 
 /**
  * @swagger
@@ -46,7 +30,7 @@ router.get('/', taskController.getTasks); // Check this function
  *       200:
  *         description: A list of tasks for the user
  */
-router.get('/user/:userId', taskController.getTasksForUser); // Check this function
+router.get('/user/:userId', taskController.getTasksByUser);
 
 /**
  * @swagger
@@ -74,6 +58,6 @@ router.get('/user/:userId', taskController.getTasksForUser); // Check this funct
  *       200:
  *         description: Task updated successfully
  */
-router.patch('/:taskId', taskController.updateTask); // Check this function
+router.patch('/:taskId', taskController.updateTask);
 
 module.exports = router;
