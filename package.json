@@ -4,11 +4,11 @@
   "description": "Backend server for HouseTabz application",
   "main": "src/app.js",
   "scripts": {
-    "start": "NODE_ENV=development node src/app.js", 
-    "start:dev": "NODE_ENV=development node src/app.js", 
+    "start": "NODE_ENV=development node src/app.js",
+    "start:dev": "NODE_ENV=development node src/app.js",
     "start:local": "NODE_ENV=development_local node src/app.js",
-    "start:prod": "NODE_ENV=production node src/app.js", 
-    "test": "NODE_ENV=test jest" 
+    "start:prod": "NODE_ENV=production node src/app.js",
+    "test": "NODE_ENV=test jest"
   },
   "keywords": [],
   "author": "",
@@ -19,7 +19,7 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.0",
+    "express": "^4.21.2",
     "express-basic-auth": "^1.2.1",
     "express-jwt": "^8.4.1",
     "express-validator": "^7.2.0",

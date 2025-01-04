@@ -58,14 +58,6 @@ module.exports = (sequelize, DataTypes) => {
           isEmail: true,
         },
       },
-      api_key: {
-        type: DataTypes.STRING,
-        allowNull: true, // Generated automatically and can be null initially
-      },
-      secret_key: {
-        type: DataTypes.STRING,
-        allowNull: true, // Generated automatically and can be null initially
-      },
       webhook_url: {
         type: DataTypes.STRING,
         allowNull: true, // Set by the partner later

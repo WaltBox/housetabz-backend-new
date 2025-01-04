@@ -47,3 +47,6 @@ module.exports = {
 
 // NODE_ENV=development_local node src/app.js start script for development_local
 // zip -r app.zip . -x node_modules/\* .env
+
+// npx sequelize-cli db:migrate --env development_local
+

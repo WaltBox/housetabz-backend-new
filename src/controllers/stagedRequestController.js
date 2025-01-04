@@ -1,29 +1,36 @@
-const { StagedRequest, ServiceRequestBundle, User, Task } = require('../models');
+const { StagedRequest, ServiceRequestBundle, User, Task, Partner } = require('../models');
 const Sequelize = require('sequelize');
 
 const stagedRequestController = {
   async createStagedRequest(req, res) {
     try {
-      const { partnerName, transactionId, serviceName, pricing, userId } = req.body;
+      const { transactionId, serviceName, pricing, userId } = req.body;
+      const { partnerId } = req.params;
 
       // Validate input
-      if (!partnerName || !transactionId || !serviceName || !pricing || !userId) {
+      if (!transactionId || !serviceName || !pricing || !userId) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      // Create the StagedRequest
-      const stagedRequest = await StagedRequest.create({
-        partnerName,
-        transactionId,
-        serviceName,
-        pricing,
-      });
+      // Fetch the partner to get the partnerName
+      const partner = await Partner.findByPk(partnerId);
+      if (!partner) {
+        return res.status(404).json({ error: 'Partner not found' });
+      }
 
       // Fetch user and their houseId
       const user = await User.findByPk(userId);
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
+
+      // Create the StagedRequest
+      const stagedRequest = await StagedRequest.create({
+        partnerName: partner.name, // Use the name from the Partner model
+        transactionId,
+        serviceName,
+        pricing,
+      });
 
       // Create the ServiceRequestBundle
       const serviceRequestBundle = await ServiceRequestBundle.create({
