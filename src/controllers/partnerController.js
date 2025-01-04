@@ -1,37 +1,25 @@
 const { Partner, ServiceRequestBundle, PartnerKey } = require('../models');
 const crypto = require('crypto');
 const axios = require('axios');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const partnerController = {
   // Create a new partner
   async createPartner(req, res) {
+    console.log('Request received at createPartner');
+    console.log('Request body:', req.body);
     try {
-      const {
-        name,
-        about,
-        important_information,
-        logo,
-        registration_code,
-        person_of_contact,
-        phone_number,
-        email,
-      } = req.body;
-
+      const { name, registration_code } = req.body;
+  
       if (!name || !registration_code) {
+        console.log('Validation failed:', { name, registration_code });
         return res.status(400).json({ message: 'Name and Registration Code are required.' });
       }
-
-      const partner = await Partner.create({
-        name,
-        about,
-        important_information,
-        logo,
-        registration_code,
-        person_of_contact,
-        phone_number,
-        email,
-      });
-
+  
+      const partner = await Partner.create(req.body);
+  
+      console.log('Partner created:', partner);
       res.status(201).json({
         message: 'Partner created successfully',
         partner: {
@@ -40,8 +28,100 @@ const partnerController = {
         },
       });
     } catch (error) {
-      console.error('Error creating partner:', error);
+      console.error('Error in createPartner:', error);
       res.status(500).json({ message: 'Failed to create partner' });
+    }
+  },
+  
+  
+
+  // Complete Registration
+  async completeRegistration(req, res) {
+    try {
+      const { id, phone_number, email, password } = req.body;
+  
+      if (!id || !phone_number || !email || !password) {
+        return res.status(400).json({ error: 'All fields are required' });
+      }
+  
+      const partner = await Partner.findOne({ where: { id } });
+  
+      if (!partner) {
+        return res.status(404).json({ error: 'Partner not found' });
+      }
+  
+      partner.phone_number = phone_number;
+      partner.email = email;
+      partner.password = await bcrypt.hash(password, 10); // Hash the password for security
+      await partner.save();
+  
+      res.status(200).json({ message: 'Registration completed successfully' });
+    } catch (error) {
+      console.error('Error completing registration:', error);
+      res.status(500).json({ error: 'Failed to complete registration' });
+    }
+  },
+  
+
+  async verifyPartner(req, res) {
+    try {
+      const { name, registration_code } = req.body;
+  
+      if (!name || !registration_code) {
+        return res
+          .status(400)
+          .json({ error: "Both name and registration code are required." });
+      }
+  
+      const partner = await Partner.findOne({
+        where: { name, registration_code },
+        attributes: ['id', 'name', 'registration_code'], // Only return essential fields
+      });
+  
+      if (!partner) {
+        return res.status(404).json({ error: "Invalid name or registration code" });
+      }
+  
+      res.status(200).json({ partner });
+    } catch (error) {
+      console.error("Error verifying partner:", error);
+      res.status(500).json({ error: "Failed to verify partner" });
+    }
+  },
+  
+  
+
+  // Login
+  async login(req, res) {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+
+      const partner = await Partner.findOne({ where: { email } });
+
+      if (!partner) {
+        return res.status(404).json({ error: 'Invalid email or password' });
+      }
+
+      const isMatch = await bcrypt.compare(password, partner.password);
+
+      if (!isMatch) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      const token = jwt.sign(
+        { id: partner.id, email: partner.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      res.status(200).json({ token, message: 'Login successful' });
+    } catch (error) {
+      console.error('Error during login:', error);
+      res.status(500).json({ error: 'Failed to log in' });
     }
   },
 

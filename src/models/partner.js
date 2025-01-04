@@ -1,5 +1,6 @@
 'use strict';
 const { Model } = require('sequelize');
+const bcrypt = require('bcrypt');
 
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
@@ -58,11 +59,15 @@ module.exports = (sequelize, DataTypes) => {
           isEmail: true,
         },
       },
+      password: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
       webhook_url: {
         type: DataTypes.STRING,
-        allowNull: true, // Set by the partner later
+        allowNull: true,
         validate: {
-          isUrl: true, // Ensures it's a valid URL
+          isUrl: true,
         },
       },
     },
@@ -71,6 +76,14 @@ module.exports = (sequelize, DataTypes) => {
       modelName: 'Partner',
       tableName: 'Partners',
       underscored: true,
+      hooks: {
+        beforeSave: async (partner) => {
+          if (partner.password) {
+            const salt = await bcrypt.genSalt(10);
+            partner.password = await bcrypt.hash(partner.password, salt);
+          }
+        },
+      },
     }
   );
 

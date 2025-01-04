@@ -55,6 +55,197 @@ const router = express.Router();
  */
 router.post('/create', partnerController.createPartner);
 
+
+/**
+ * @swagger
+ * /partners/complete-registration:
+ *   post:
+ *     summary: Complete partner registration
+ *     description: Completes the partner registration process using a registration code.
+ *     tags: [Partners]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *  
+ *               - phone_number
+ *               - email
+ *               - password
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Rhythm Energy"
+ *             
+ *    
+ *               phone_number:
+ *                 type: string
+ *                 example: "123-456-7890"
+ *               email:
+ *                 type: string
+ *                 example: "example@partner.com"
+ *               password:
+ *                 type: string
+ *                 example: "securepassword123"
+ *     responses:
+ *       200:
+ *         description: Registration completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Registration completed successfully"
+ *       400:
+ *         description: Invalid input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "All fields are required"
+ *       404:
+ *         description: Partner not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid name or registration code"
+ */
+router.post('/partners/complete-registration', partnerController.completeRegistration);
+
+/**
+ * @swagger
+ * /partners/verify:
+ *   post:
+ *     summary: Verify a partner's name and registration code
+ *     description: Validates the partner name and registration code before completing registration.
+ *     tags: [Partners]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - registration_code
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Test Partner"
+ *               registration_code:
+ *                 type: string
+ *                 example: "TEST12345"
+ *     responses:
+ *       200:
+ *         description: Partner verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 partner:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     registration_code:
+ *                       type: string
+ *       404:
+ *         description: Invalid partner name or registration code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid name or registration code"
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/partners/verify', partnerController.verifyPartner);
+
+/**
+ * @swagger
+ * /partners/login:
+ *   post:
+ *     summary: Partner login
+ *     description: Logs in a partner using their email and password.
+ *     tags: [Partners]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: "example@partner.com"
+ *               password:
+ *                 type: string
+ *                 example: "securepassword123"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *                   example: "Login successful"
+ *       400:
+ *         description: Missing credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Email and password are required"
+ *       404:
+ *         description: Partner not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid email or password"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Invalid email or password"
+ */
+router.post('/partners/login', partnerController.login);
+
 /**
  * @swagger
  * /partners:
