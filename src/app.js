@@ -49,6 +49,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api/users', userRoutes);
 app.use('/api/houses', houseRoutes);
 app.use('/api', partnerRoutes);
+
 app.use('/api', serviceRequestBundleRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/houses', billRoutes);
