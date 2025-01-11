@@ -29,4 +29,27 @@ const referrerController = require('../controllers/referrerController');
  */
 router.post('/', referrerController.generateReferralLink);
 
+/**
+ * @swagger
+ * /referral-program:
+ *   get:
+ *     summary: Retrieve referral link by email
+ *     tags: [Referrer]
+ *     parameters:
+ *       - in: query
+ *         name: email
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Email of the referrer
+ *     responses:
+ *       200:
+ *         description: Referral link retrieved successfully
+ *       404:
+ *         description: Referrer not found
+ *       400:
+ *         description: Email is missing
+ */
+router.get('/', referrerController.getReferralLinkByEmail);
+
 module.exports = router;

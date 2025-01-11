@@ -35,3 +35,28 @@ exports.generateReferralLink = async (req, res) => {
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };
+
+// Get referral link by email
+exports.getReferralLinkByEmail = async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required.' });
+    }
+
+    const referrer = await Referrer.findOne({ where: { email } });
+
+    if (!referrer) {
+      return res.status(404).json({ message: 'Referrer not found.' });
+    }
+
+    res.status(200).json({
+      message: 'Referral link retrieved successfully!',
+      link: referrer.referralLink,
+    });
+  } catch (error) {
+    console.error('Error retrieving referral link:', error.message);
+    res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+};
