@@ -29,6 +29,7 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 exports.addToWaitList = async (req, res) => {
   try {
     const { name, phone, email, city } = req.body;
+    const referrerId = req.query.ref; // Capture the referral ID from the query string
 
     if (!name || !phone || !email || !city) {
       return res.status(400).json({ message: 'All fields are required.' });
@@ -40,11 +41,17 @@ exports.addToWaitList = async (req, res) => {
       return res.status(409).json({ message: 'This email is already on the waitlist.' });
     }
 
-    // Create the waitlist entry
-    const waitListEntry = await WaitList.create({ name, phone, email, city });
+    // Validate the referral ID (if provided)
+    const referrer = referrerId ? await Referrer.findByPk(referrerId) : null;
 
-    // Send welcome email
-    await sendWelcomeEmail(name, email);
+    // Create the waitlist entry
+    const waitListEntry = await WaitList.create({
+      name,
+      phone,
+      email,
+      city,
+      referrerId: referrer ? referrer.id : null,
+    });
 
     res.status(201).json({
       message: 'Successfully added to the waitlist!',
@@ -55,6 +62,7 @@ exports.addToWaitList = async (req, res) => {
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };
+
 
 // Get all waitlist entries (for admin use)
 exports.getWaitList = async (req, res) => {

@@ -26,7 +26,7 @@ const waitListRoutes = require('./routes/waitListRoutes');
 const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
-
+const referrerRoutes = require('./routes/referrerRoutes');
 // Initialize Express app
 const app = express();
 
@@ -60,7 +60,7 @@ app.use('/api/deals', dealRoutes);
 app.use('/api/waitlist', waitListRoutes);
 app.use('/api/partner-forms', partnerFormRoutes);
 app.use('/api/contact', contactRoutes);
-
+app.use('/api/referral-program', referrerRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

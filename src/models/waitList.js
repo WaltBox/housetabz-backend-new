@@ -18,11 +18,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
+      referrerId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+      },
     });
   
     WaitList.associate = (models) => {
-      // If there are any relationships, define them here.
-      // For example: WaitList.belongsTo(models.OtherModel, { foreignKey: 'otherModelId', as: 'otherModel' });
+      WaitList.belongsTo(models.Referrer, { foreignKey: 'referrerId', as: 'referrer' });
     };
   
     return WaitList;
