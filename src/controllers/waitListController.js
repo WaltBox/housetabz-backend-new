@@ -28,29 +28,32 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {
   try {
-    const { name, phone, email, city } = req.body;
-    const referrerId = req.body.referrerId || req.query.ref; // Capture referrerId from body or query string
+    const { name, phone, email, city, referrerId } = req.body;
+    console.log("Request Data:", { name, phone, email, city, referrerId });
 
     if (!name || !phone || !email || !city) {
+      console.log("Validation failed: Missing required fields.");
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    // Check if the email already exists
+    // Check for duplicate email
     const existingUser = await WaitList.findOne({ where: { email } });
     if (existingUser) {
+      console.log(`Duplicate email found: ${email}`);
       return res.status(409).json({ message: 'This email is already on the waitlist.' });
     }
 
-    // If referrerId is provided, validate it
+    // Validate referrerId if provided
     let referrer = null;
     if (referrerId) {
       referrer = await Referrer.findByPk(referrerId);
       if (!referrer) {
+        console.log(`Invalid referrerId: ${referrerId}`);
         return res.status(400).json({ message: 'Invalid referrer ID provided.' });
       }
     }
 
-    // Create the waitlist entry
+    // Create waitlist entry
     const waitListEntry = await WaitList.create({
       name,
       phone,
@@ -59,12 +62,13 @@ exports.addToWaitList = async (req, res) => {
       referrerId: referrer ? referrer.id : null,
     });
 
+    console.log("Waitlist entry created successfully:", waitListEntry);
     res.status(201).json({
       message: 'Successfully added to the waitlist!',
       entry: waitListEntry,
     });
   } catch (error) {
-    console.error('Error adding to waitlist:', error.message);
+    console.error('Error adding to waitlist:', error);
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };
