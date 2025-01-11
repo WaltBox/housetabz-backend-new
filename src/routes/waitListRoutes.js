@@ -29,6 +29,10 @@ const waitListController = require('../controllers/waitListController');
  *         city:
  *           type: string
  *           description: City of the person
+ *         referrerId:
+ *           type: string
+ *           format: uuid
+ *           description: Optional ID of the referrer
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -57,7 +61,24 @@ const waitListController = require('../controllers/waitListController');
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/WaitList'
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Full name of the person
+ *               phone:
+ *                 type: string
+ *                 description: Phone number of the person
+ *               email:
+ *                 type: string
+ *                 description: Email address of the person
+ *               city:
+ *                 type: string
+ *                 description: City of the person
+ *               referrerId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional ID of the referrer
  *     responses:
  *       201:
  *         description: The waitlist entry was created successfully
