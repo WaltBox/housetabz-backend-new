@@ -12,7 +12,7 @@ const createWelcomeEmail = (recipientName) => `
     <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);">
       <h1 style="color: #34d399; font-size: 24px; margin-bottom: 20px;">Welcome to HouseTabz, ${recipientName}!</h1>
       <p style="font-size: 16px; line-height: 1.6; color: #333;">
-        We're thrilled to have you join the <strong>HouseTabz Waitlist</strong>. Thank you for being part of our journey to revolutionize shared living expenses.
+        We're thrilled to have you join the <strong>HouseTabz VIP list</strong>. Thank you for being part of our journey to revolutionize shared living expenses.
       </p>
       <p style="font-size: 16px; line-height: 1.6; color: #333;">
         Stay tuned for updates, exclusive perks, and early access to our platform. We can't wait to share more with you soon!

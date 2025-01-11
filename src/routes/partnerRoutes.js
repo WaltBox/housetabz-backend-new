@@ -3,7 +3,8 @@ const partnerController = require('../controllers/partnerController');
 const stagedRequestController = require('../controllers/stagedRequestController');
 const authenticatePartner = require('../middleware/authenticatePartner');
 const router = express.Router();
-
+const authenticateToken = require('../middleware/authenticateToken');
+const currentPartnerMiddleware = require('../middleware/currentPartnerMiddleware');
 /**
  * @swagger
  * tags:
@@ -13,7 +14,7 @@ const router = express.Router();
 
 /**
  * @swagger
- * /api/partners/create:
+ * /partners/create:
  *   post:
  *     summary: Create a new partner
  *     description: Registers a new partner and generates API keys.
@@ -106,7 +107,7 @@ router.post('/partners/:partnerId/complete-registration', partnerController.comp
 
 /**
  * @swagger
- * /api/partners/verify:
+ * /partners/verify:
  *   post:
  *     summary: Verify partner registration
  *     description: Validate the partner's name and registration code.
@@ -137,7 +138,7 @@ router.post('/partners/verify', partnerController.verifyPartner);
 
 /**
  * @swagger
- * /api/partners/login:
+ * /partners/login:
  *   post:
  *     summary: Partner login
  *     description: Logs in a partner using their email and password.
@@ -206,7 +207,7 @@ router.post('/partners/login', partnerController.login);
 
 /**
  * @swagger
- * /api/partners:
+ * /partners:
  *   get:
  *     summary: Get all partners
  *     description: Retrieves a list of all registered partners.
@@ -239,9 +240,19 @@ router.post('/partners/login', partnerController.login);
  */
 router.get('/partners', partnerController.getAllPartners);
 
-/**
+
+
+router.get('/partners/current', currentPartnerMiddleware, (req, res) => {
+    if (!req.current_partner) {
+      return res.status(401).json({ error: 'Unauthorized access' });
+    }
+  
+    res.status(200).json({ partner: req.current_partner });
+  });
+  
+  /**
  * @swagger
- * /api/partners/{partnerId}:
+ * /partners/{partnerId}:
  *   get:
  *     summary: Get a partner by ID
  *     description: Retrieves details for a specific partner by their ID.
@@ -265,5 +276,61 @@ router.get('/partners', partnerController.getAllPartners);
  *                   type: object
  */
 router.get('/partners/:partnerId', partnerController.getPartnerById);
+
+/**
+ * @swagger
+ * /partners/{partnerId}/api-keys:
+ *   get:
+ *     summary: Get API keys for a partner
+ *     description: Retrieves API keys associated with the specified partner.
+ *     tags: [Partners]
+ *     parameters:
+ *       - in: path
+ *         name: partnerId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The ID of the partner
+ *     responses:
+ *       200:
+ *         description: API keys retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 apiKeys:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       api_key:
+ *                         type: string
+ *                       secret_key:
+ *                         type: string
+ *       404:
+ *         description: No API keys found for this partner
+ *       500:
+ *         description: Failed to fetch API keys
+ */
+router.get('/partners/:partnerId/api-keys', partnerController.getApiKeys);
+
+
+  /**
+ * @swagger
+ * /partners/logout:
+ *   post:
+ *     summary: Logout partner
+ *     description: Logs out the currently logged-in partner by invalidating their session token.
+ *     tags: [Partners]
+ *     responses:
+ *       200:
+ *         description: Logout successful.
+ *       500:
+ *         description: Failed to log out.
+ */
+router.post('/partners/logout', authenticateToken, partnerController.logout);
 
 module.exports = router;

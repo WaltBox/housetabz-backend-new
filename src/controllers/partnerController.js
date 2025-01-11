@@ -132,6 +132,51 @@ const partnerController = {
     }
   },
 
+  async getCurrentPartner(req, res) {
+    try {
+      const partner = req.current_partner; // Middleware already set this
+      if (!partner) {
+        return res.status(404).json({ error: 'Partner not found' });
+      }
+  
+      res.json({ partner });
+    } catch (error) {
+      console.error('Error in getCurrentPartner:', error);
+      res.status(500).json({ error: 'Failed to fetch partner data' });
+    }
+  },
+
+  // Retrieve API keys for a partner
+async getApiKeys(req, res) {
+  try {
+    const { partnerId } = req.params; // Extract the partner ID from the route params
+
+    // Query the database for API keys associated with this partner
+    const apiKeys = await PartnerKey.findAll({
+      where: { partnerId },
+      attributes: ['id', 'api_key', 'secret_key'], // Fetch only the necessary fields
+    });
+
+    if (!apiKeys || apiKeys.length === 0) {
+      return res.status(404).json({ error: 'No API keys found for this partner' });
+    }
+
+    res.status(200).json({ apiKeys });
+  } catch (error) {
+    console.error('Error fetching API keys:', error);
+    res.status(500).json({ error: 'Failed to fetch API keys' });
+  }
+},
+
+  // Logout
+  logout(req, res) {
+    try {
+      res.status(200).json({ message: 'Logout successful. Please clear your token on the client side.' });
+    } catch (error) {
+      console.error('Error during logout:', error);
+      res.status(500).json({ error: 'Failed to log out.' });
+    }
+  },
   // Get all partners
   async getAllPartners(req, res) {
     try {

@@ -1,6 +1,5 @@
 'use strict';
 const { Model } = require('sequelize');
-const bcrypt = require('bcrypt');
 
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
@@ -77,12 +76,13 @@ module.exports = (sequelize, DataTypes) => {
       tableName: 'Partners',
       underscored: true,
       hooks: {
-        beforeSave: async (partner) => {
-          if (partner.password) {
-            const salt = await bcrypt.genSalt(10);
-            partner.password = await bcrypt.hash(partner.password, salt);
-          }
-        },
+        // Temporarily disabling the password hashing
+        // beforeSave: async (partner) => {
+        //   if (partner.password) {
+        //     const salt = await bcrypt.genSalt(10);
+        //     partner.password = await bcrypt.hash(partner.password, salt);
+        //   }
+        // },
       },
     }
   );
