@@ -11,27 +11,27 @@ exports.generateReferralLink = async (req, res) => {
     // Check if email already exists
     const existingReferrer = await Referrer.findOne({ where: { email } });
     if (existingReferrer) {
-      // Format the preview URL using the existing referrer ID
-      const previewUrl = `/referral-program/r/${existingReferrer.id}`;
       return res.status(409).json({
         message: 'You already have a referral link.',
-        link: previewUrl,
+        link: existingReferrer.referralLink,
       });
     }
+
+    const baseUrl = 'https://houseTabz.com/vip';
     
-    // Create the referrer
+    // First create the referrer
     const referrer = await Referrer.create({
       name,
-      email,
-      referralLink: `/vip?referrerId=${referrer.id}` // Store the actual redirect URL
+      email
     });
 
-    // Format the preview URL for sharing
-    const previewUrl = `/referral-program/r/${referrer.id}`;
+    // Then update with the referral link
+    const referralLink = `${baseUrl}?referrerId=${referrer.id}`;
+    await referrer.update({ referralLink });
 
     res.status(201).json({
       message: 'Referral link created successfully!',
-      link: previewUrl,
+      link: referralLink,
     });
   } catch (error) {
     console.error('Error generating referral link:', error);
@@ -53,12 +53,9 @@ exports.getReferralLinkByEmail = async (req, res) => {
       return res.status(404).json({ message: 'Referrer not found.' });
     }
 
-    // Return the preview URL instead of direct link
-    const previewUrl = `${process.env.BASE_URL || 'https://housetabz.com'}/referral-program/r/${referrer.id}`;
-
     res.status(200).json({
       message: 'Referral link retrieved successfully!',
-      link: previewUrl,
+      link: referrer.referralLink,
     });
   } catch (error) {
     console.error('Error retrieving referral link:', error);

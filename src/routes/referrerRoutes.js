@@ -52,4 +52,6 @@ router.post('/', referrerController.generateReferralLink);
  */
 router.get('/', referrerController.getReferralLinkByEmail);
 
+
+
 module.exports = router;
