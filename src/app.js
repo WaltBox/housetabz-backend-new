@@ -32,10 +32,8 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['https://www.housetabz.com', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],  // Added OPTIONS
-  allowedHeaders: ['Content-Type', 'Authorization'],      // Added allowed headers
-  credentials: true                                      // Added credentials support
+  origin: ['https://www.housetabz.com', 'http://localhost:3000'], // Add localhost for development
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
 }));
 
 app.use(express.json());
