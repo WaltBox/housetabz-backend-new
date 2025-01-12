@@ -28,30 +28,47 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {
   try {
-    const { name, phone, email, city, referrerId } = req.body;
-    console.log("Request Data:", { name, phone, email, city, referrerId });
+    const { name, phone, email, city, referrerId } = req.body; // Destructure referrerId from body
 
+    // Validate required fields
     if (!name || !phone || !email || !city) {
-      console.log("Validation failed: Missing required fields.");
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
     // Check for duplicate email
     const existingUser = await WaitList.findOne({ where: { email } });
     if (existingUser) {
-      console.log(`Duplicate email found: ${email}`);
       return res.status(409).json({ message: 'This email is already on the waitlist.' });
     }
 
-    // Validate referrerId if provided
+    // Check referrer validity if provided
     let referrer = null;
     if (referrerId) {
       referrer = await Referrer.findByPk(referrerId);
       if (!referrer) {
-        console.log(`Invalid referrerId: ${referrerId}`);
-        return res.status(400).json({ message: 'Invalid referrer ID provided.' });
+        return res.status(400).json({ message: 'Invalid referrer ID.' });
       }
     }
+
+    // Create the waitlist entry
+    const waitListEntry = await WaitList.create({
+      name,
+      phone,
+      email,
+      city,
+      referrerId: referrer ? referrer.id : null,
+    });
+
+    res.status(201).json({
+      message: 'Successfully added to the waitlist!',
+      entry: waitListEntry,
+    });
+  } catch (error) {
+    console.error('Error adding to waitlist:', error.message);
+    res.status(500).json({ message: 'Server error. Please try again later.' });
+  }
+};
+
 
     // Create waitlist entry
     const waitListEntry = await WaitList.create({
