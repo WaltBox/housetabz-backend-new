@@ -1,6 +1,6 @@
-const { WaitList } = require('../models');
+const { WaitList, Referrer } = require('../models');  // Added Referrer import
 const sgMail = require('@sendgrid/mail');
-const { createWelcomeEmail } = require('../utils/emailTemplates'); // Import the template
+const { createWelcomeEmail } = require('../utils/emailTemplates');
 
 // Set the SendGrid API key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -11,7 +11,7 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 
   const msg = {
     to: recipientEmail,
-    from: 'notifications@housetabz.com', // Your verified sender email
+    from: 'notifications@housetabz.com',
     subject: 'Welcome to HouseTabz!',
     html: emailHtml,
   };
@@ -28,7 +28,7 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {
   try {
-    const { name, phone, email, city, referrerId } = req.body; // Destructure referrerId from body
+    const { name, phone, email, city, referrerId } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email || !city) {
@@ -59,27 +59,14 @@ exports.addToWaitList = async (req, res) => {
       referrerId: referrer ? referrer.id : null,
     });
 
-    res.status(201).json({
-      message: 'Successfully added to the waitlist!',
-      entry: waitListEntry,
-    });
-  } catch (error) {
-    console.error('Error adding to waitlist:', error.message);
-    res.status(500).json({ message: 'Server error. Please try again later.' });
-  }
-};
+    // Try to send welcome email
+    try {
+      await sendWelcomeEmail(name, email);
+    } catch (emailError) {
+      console.error('Failed to send welcome email:', emailError);
+      // Continue with the process even if email fails
+    }
 
-
-    // Create waitlist entry
-    const waitListEntry = await WaitList.create({
-      name,
-      phone,
-      email,
-      city,
-      referrerId: referrer ? referrer.id : null,
-    });
-
-    console.log("Waitlist entry created successfully:", waitListEntry);
     res.status(201).json({
       message: 'Successfully added to the waitlist!',
       entry: waitListEntry,
@@ -89,7 +76,6 @@ exports.addToWaitList = async (req, res) => {
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };
-
 
 // Get all waitlist entries (for admin use)
 exports.getWaitList = async (req, res) => {
