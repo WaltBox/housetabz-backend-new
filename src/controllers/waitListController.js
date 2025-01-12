@@ -28,52 +28,57 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {
   try {
+    console.log('Received waitlist request:', req.body);
     const { name, phone, email, city, referrerId } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email || !city) {
+      console.log('Missing required fields');
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    // Check for duplicate email
-    const existingUser = await WaitList.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(409).json({ message: 'This email is already on the waitlist.' });
-    }
-
-    // Check referrer validity if provided
-    let referrer = null;
-    if (referrerId) {
-      referrer = await Referrer.findByPk(referrerId);
-      if (!referrer) {
-        return res.status(400).json({ message: 'Invalid referrer ID.' });
-      }
-    }
-
-    // Create the waitlist entry
+    // Create the waitlist entry without checking referrer first
     const waitListEntry = await WaitList.create({
       name,
       phone,
       email,
       city,
-      referrerId: referrer ? referrer.id : null,
+      referrerId: referrerId || null  // Simplified referrer handling
     });
 
-    // Try to send welcome email
+    console.log('Waitlist entry created:', waitListEntry.toJSON());
+
+    // Try to send welcome email but don't let it block the response
     try {
       await sendWelcomeEmail(name, email);
+      console.log('Welcome email sent successfully');
     } catch (emailError) {
       console.error('Failed to send welcome email:', emailError);
-      // Continue with the process even if email fails
+      // Continue even if email fails
     }
 
     res.status(201).json({
       message: 'Successfully added to the waitlist!',
-      entry: waitListEntry,
+      entry: waitListEntry
     });
+
   } catch (error) {
-    console.error('Error adding to waitlist:', error);
-    res.status(500).json({ message: 'Server error. Please try again later.' });
+    // Log the full error details
+    console.error('Error in addToWaitList:', {
+      message: error.message,
+      stack: error.stack,
+      details: error
+    });
+
+    // Check for specific error types
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'This email is already on the waitlist.' });
+    }
+
+    res.status(500).json({ 
+      message: 'Server error. Please try again later.',
+      details: error.message // Adding error details for debugging
+    });
   }
 };
 

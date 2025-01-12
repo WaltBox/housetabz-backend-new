@@ -1,6 +1,5 @@
 const { Referrer } = require('../models');
 
-// Generate referral link
 exports.generateReferralLink = async (req, res) => {
   try {
     const { name, email } = req.body;
@@ -18,25 +17,28 @@ exports.generateReferralLink = async (req, res) => {
       });
     }
 
-    // Generate unique referral link
     const baseUrl = 'https://houseTabz.com/vip';
+    
+    // First create the referrer
     const referrer = await Referrer.create({
       name,
-      email,
-      referralLink: `${baseUrl}?ref=${await Referrer.count() + 1}`, // Simple ID-based referral link
+      email
     });
+
+    // Then update with the referral link
+    const referralLink = `${baseUrl}?referrerId=${referrer.id}`;
+    await referrer.update({ referralLink });
 
     res.status(201).json({
       message: 'Referral link created successfully!',
-      link: referrer.referralLink,
+      link: referralLink,
     });
   } catch (error) {
-    console.error('Error generating referral link:', error.message);
+    console.error('Error generating referral link:', error);
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };
 
-// Get referral link by email
 exports.getReferralLinkByEmail = async (req, res) => {
   try {
     const { email } = req.query;
@@ -56,7 +58,7 @@ exports.getReferralLinkByEmail = async (req, res) => {
       link: referrer.referralLink,
     });
   } catch (error) {
-    console.error('Error retrieving referral link:', error.message);
+    console.error('Error retrieving referral link:', error);
     res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 };

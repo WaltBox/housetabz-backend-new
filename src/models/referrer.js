@@ -16,7 +16,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       referralLink: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
         unique: true,
       },
     });
