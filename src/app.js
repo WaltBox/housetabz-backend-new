@@ -28,14 +28,28 @@ const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
 const referrerRoutes = require('./routes/referrerRoutes');
+
 // Initialize Express app
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ['https://www.housetabz.com', 'http://localhost:3000'], // Add localhost for development
+  origin: ['https://www.housetabz.com'], // Allow only your custom domain
   methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
 }));
+
+// Log unauthorized origins
+app.use((req, res, next) => {
+  const allowedOrigins = ['https://www.housetabz.com']; // Custom domain
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    next(); // Allow the request
+  } else {
+    console.log(`Blocked request from unauthorized origin: ${origin}`);
+    res.status(403).json({ message: 'Access denied.' });
+  }
+});
 
 app.use(express.json());
 app.use(morgan(':method :url :status :response-time ms - :remote-addr'));
@@ -65,6 +79,7 @@ app.use('/api/waitlist', waitListRoutes);
 app.use('/api/partner-forms', partnerFormRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/referral-program', referrerRoutes);
+
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
