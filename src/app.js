@@ -38,7 +38,7 @@ app.use(cors({
 }));
 
 app.use(express.json());
-app.use(morgan('dev'));
+app.use(morgan(':method :url :status :response-time ms - :remote-addr'));
 app.use(limiter);
 
 app.use(blockPaths);
