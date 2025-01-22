@@ -9,6 +9,7 @@ const swaggerSpec = require('./swaggerConfig');
 // Load environment and configuration
 const environment = process.env.NODE_ENV || 'development';
 const config = require('./config/config'); // Import configuration for current environment
+const { limiter, blockPaths } = require('./middleware/requestLimiter');
 
 const { sequelize } = require('./models'); // Import Sequelize instance
 
@@ -38,6 +39,9 @@ app.use(cors({
 
 app.use(express.json());
 app.use(morgan('dev'));
+app.use(limiter);
+
+app.use(blockPaths);
 
 // Serve static files
 app.use('/uploads', express.static('uploads'));
