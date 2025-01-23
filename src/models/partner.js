@@ -1,10 +1,16 @@
 'use strict';
 const { Model } = require('sequelize');
+const bcrypt = require('bcrypt');
 
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
     static associate(models) {
       // Define associations here
+    }
+
+    // Instance method to verify password
+    async verifyPassword(password) {
+      return bcrypt.compare(password, this.password);
     }
   }
 
@@ -17,10 +23,12 @@ module.exports = (sequelize, DataTypes) => {
       about: {
         type: DataTypes.TEXT,
         allowNull: true,
+        defaultValue: '',
       },
       important_information: {
         type: DataTypes.TEXT,
         allowNull: true,
+        defaultValue: '',
       },
       logo: {
         type: DataTypes.STRING,
@@ -37,6 +45,7 @@ module.exports = (sequelize, DataTypes) => {
       avg_price: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: true,
+        defaultValue: 0.0,
       },
       registration_code: {
         type: DataTypes.STRING,
@@ -50,17 +59,21 @@ module.exports = (sequelize, DataTypes) => {
       phone_number: {
         type: DataTypes.STRING,
         allowNull: true,
+        validate: {
+          is: /^[\d\s\-\+()]+$/, // Regex for phone numbers
+        },
       },
       email: {
         type: DataTypes.STRING,
-        allowNull: true,
+        allowNull: true, // Allow null initially
+        unique: true,
         validate: {
           isEmail: true,
         },
       },
       password: {
         type: DataTypes.STRING,
-        allowNull: true,
+        allowNull: true, // Allow null initially
       },
       webhook_url: {
         type: DataTypes.STRING,
@@ -75,14 +88,20 @@ module.exports = (sequelize, DataTypes) => {
       modelName: 'Partner',
       tableName: 'Partners',
       underscored: true,
+      timestamps: true, // Add timestamps
       hooks: {
-        // Temporarily disabling the password hashing
-        // beforeSave: async (partner) => {
-        //   if (partner.password) {
-        //     const salt = await bcrypt.genSalt(10);
-        //     partner.password = await bcrypt.hash(partner.password, salt);
-        //   }
-        // },
+        // Hash password before saving
+        beforeSave: async (partner) => {
+          try {
+            if (partner.changed('password')) {
+              const salt = await bcrypt.genSalt(10);
+              partner.password = await bcrypt.hash(partner.password, salt);
+            }
+          } catch (error) {
+            console.error('Error hashing password:', error);
+            throw new Error('Failed to hash password.');
+          }
+        },
       },
     }
   );

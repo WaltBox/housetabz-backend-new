@@ -1,63 +1,77 @@
 const { Partner, ServiceRequestBundle, PartnerKey } = require('../models');
 const crypto = require('crypto');
 const axios = require('axios');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
 const partnerController = {
   // Create a new partner
+  
   async createPartner(req, res) {
-    console.log('Request received at createPartner');
-    console.log('Request body:', req.body);
     try {
       const { name, registration_code } = req.body;
-
+  
       if (!name || !registration_code) {
-        console.log('Validation failed:', { name, registration_code });
         return res.status(400).json({ message: 'Name and Registration Code are required.' });
       }
-
-      const partner = await Partner.create(req.body);
-
-      console.log('Partner created:', partner);
+  
+      // Create the Partner
+      const partner = await Partner.create({ name, registration_code });
+  
+      // Generate API and Secret Keys with Prefixes
+      const apiKey = `whec-${crypto.randomBytes(16).toString('hex')}`;
+      const secretKey = `htzs-${crypto.randomBytes(32).toString('hex')}`;
+  
+      // Save the keys to the PartnerKeys table
+      await PartnerKey.create({
+        partnerId: partner.id,
+        api_key: apiKey,
+        secret_key: secretKey,
+      });
+  
       res.status(201).json({
         message: 'Partner created successfully',
         partner: {
           id: partner.id,
           name: partner.name,
+          registration_code: partner.registration_code,
+          api_key: apiKey, // Return the API key for admin visibility
+          secret_key: secretKey, // Return the Secret key for admin visibility
         },
       });
     } catch (error) {
       console.error('Error in createPartner:', error);
-      res.status(500).json({ message: 'Failed to create partner' });
+      res.status(500).json({ message: 'Failed to create partner.' });
     }
-  },
+  },  
 
   // Complete Registration
   async completeRegistration(req, res) {
     try {
       const { partnerId } = req.params;
       const { person_of_contact, email, password, phone_number } = req.body;
-
+  
       // Validate input
       if (!person_of_contact || !email || !password || !phone_number) {
         return res.status(400).json({ error: 'All fields are required.' });
       }
-
-      // Find partner by ID
+  
+      // Find the partner by ID
       const partner = await Partner.findOne({ where: { id: partnerId } });
-
       if (!partner) {
         return res.status(404).json({ error: 'Partner not found.' });
       }
-
-      // Update partner's information
-      partner.person_of_contact = person_of_contact;
-      partner.email = email;
-      partner.password = password; // Directly storing plain password temporarily
-      partner.phone_number = phone_number;
-
-      await partner.save();
-
+  
+      // Update partner details
+      partner.set({
+        person_of_contact,
+        email,
+        password, // Plain text password is set; the `beforeSave` hook will hash it
+        phone_number,
+      });
+  
+      await partner.save(); // Triggers the `beforeSave` hook for hashing
+  
       res.status(200).json({
         message: 'Partner registration completed successfully.',
         partner: {
@@ -73,6 +87,9 @@ const partnerController = {
       res.status(500).json({ error: 'Failed to complete registration.' });
     }
   },
+  
+
+
   // Verify Partner
   async verifyPartner(req, res) {
     try {
@@ -102,35 +119,35 @@ const partnerController = {
   async login(req, res) {
     try {
       const { email, password } = req.body;
-
+  
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required.' });
       }
-
+  
       const partner = await Partner.findOne({ where: { email } });
-
       if (!partner) {
         return res.status(404).json({ error: 'Invalid email or password.' });
       }
-
-      // Temporarily bypass bcrypt and compare plain text passwords
-      if (password !== partner.password) {
-        console.log('Password does not match');
+  
+      // Compare hashed password
+      const isMatch = await bcrypt.compare(password, partner.password);
+      if (!isMatch) {
         return res.status(401).json({ error: 'Invalid email or password.' });
       }
-
+  
       const token = jwt.sign(
         { id: partner.id, email: partner.email },
         process.env.JWT_SECRET,
         { expiresIn: '1h' }
       );
-
+  
       res.status(200).json({ token, message: 'Login successful' });
     } catch (error) {
-      console.error('Error during login:', error);
-      res.status(500).json({ error: 'Failed to log in' });
+      console.error('Error during login:', error.message);
+      res.status(500).json({ error: 'Failed to log in.' });
     }
   },
+  
 
   async getCurrentPartner(req, res) {
     try {
