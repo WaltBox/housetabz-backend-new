@@ -1,31 +1,42 @@
-const { PartnerKey, Partner } = require('../models');
+// middleware/authenticatePartner.js
+const { Partner, PartnerKey } = require('../models');
 
 const authenticatePartner = async (req, res, next) => {
-  console.log('Headers received:', req.headers); // Log headers for debugging
-
-  const { api_key, secret_key } = req.headers;
-
-  if (!api_key || !secret_key) {
-    return res.status(401).json({ error: 'Missing API key or secret key' });
-  }
-
-  try {
-    const partnerKey = await PartnerKey.findOne({
-      where: { api_key, secret_key },
-      include: [{ model: Partner }],
-    });
-
-    if (!partnerKey) {
-      return res.status(403).json({ error: 'Invalid API key or secret key' });
+    const apiKey = req.headers['x-housetabz-api-key'];
+    const secretKey = req.headers['x-housetabz-secret-key'];
+    
+    if (!apiKey || !secretKey) {
+        return res.status(401).json({
+            error: 'Authentication failed',
+            message: 'Both API key and Secret key are required'
+        });
     }
 
-    req.partner = partnerKey.Partner;
-    next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+    try {
+        const partnerKey = await PartnerKey.findOne({
+            where: {
+                api_key: apiKey,
+                secret_key: secretKey
+            }
+        });
 
+        if (!partnerKey) {
+            return res.status(401).json({
+                error: 'Authentication failed',
+                message: 'Invalid API credentials'
+            });
+        }
+
+        // Add partner info to request object
+        req.partnerId = partnerKey.partnerId;
+        next();
+    } catch (error) {
+        console.error('Authentication error:', error);
+        res.status(500).json({
+            error: 'Server error',
+            message: 'An error occurred during authentication'
+        });
+    }
+};
 
 module.exports = authenticatePartner;

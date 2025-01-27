@@ -5,7 +5,18 @@ const bcrypt = require('bcrypt');
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
     static associate(models) {
-      // Define associations here
+    
+      Partner.hasMany(models.StagedRequest, {
+        foreignKey: 'partnerId',
+        as: 'stagedRequests'
+      });
+
+      Partner.hasMany(models.WebhookLog, {
+        foreignKey: 'partner_id',
+        as: 'webhookLogs'  // Make sure this matches
+      });
+
+
     }
 
     // Instance method to verify password
@@ -75,13 +86,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true, // Allow null initially
       },
-      webhook_url: {
+      webhookUrl: {
         type: DataTypes.STRING,
         allowNull: true,
-        validate: {
-          isUrl: true,
-        },
       },
+      webhookSecret: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      webhookEnabled: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      }
+      
     },
     {
       sequelize,

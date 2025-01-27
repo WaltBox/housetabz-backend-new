@@ -1,6 +1,7 @@
 const { ServiceRequestBundle, Task, User } = require('../models');
 const Sequelize = require('sequelize');
 
+
 const serviceRequestBundleController = {
   // Create a ServiceRequestBundle based on a StagedRequest
   async createServiceRequestBundle(req, res) {
@@ -103,21 +104,29 @@ const serviceRequestBundleController = {
     try {
       const { id } = req.params;
       const { status } = req.body;
-
-      // Validate input
+  
       if (!status) {
         return res.status(400).json({ error: 'Missing status field' });
       }
-
-      const serviceRequestBundle = await ServiceRequestBundle.findByPk(id);
-
+  
+      const serviceRequestBundle = await ServiceRequestBundle.findByPk(id, {
+        include: [
+          {
+            model: StagedRequest,
+            include: [{ model: Partner }]
+          }
+        ]
+      });
+  
       if (!serviceRequestBundle) {
         return res.status(404).json({ error: 'Service request bundle not found' });
       }
-
+  
+      // Update status
       serviceRequestBundle.status = status;
       await serviceRequestBundle.save();
-
+  
+  
       res.status(200).json({
         message: 'Service request bundle updated successfully',
         serviceRequestBundle,

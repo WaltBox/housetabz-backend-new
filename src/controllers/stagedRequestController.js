@@ -8,11 +8,11 @@ const stagedRequestController = {
       const { partnerId } = req.params;
 
       // Validate input
-      if (!transactionId || !serviceName || !pricing || !userId) {
+      if (!transactionId || !serviceName || !pricing || !userId || !partnerId) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      // Fetch the partner to get the partnerName
+      // Fetch the partner
       const partner = await Partner.findByPk(partnerId);
       if (!partner) {
         return res.status(404).json({ error: 'Partner not found' });
@@ -24,9 +24,10 @@ const stagedRequestController = {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Create the StagedRequest
+      // Create the StagedRequest with partnerId
       const stagedRequest = await StagedRequest.create({
-        partnerName: partner.name, // Use the name from the Partner model
+        partnerName: partner.name,
+        partnerId: partner.id, // Add this line
         transactionId,
         serviceName,
         pricing,

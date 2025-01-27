@@ -5,6 +5,12 @@ const authenticatePartner = require('../middleware/authenticatePartner');
 const router = express.Router();
 const authenticateToken = require('../middleware/authenticateToken');
 const currentPartnerMiddleware = require('../middleware/currentPartnerMiddleware');
+const webhookMiddleware = require('../middleware/webhookMiddleware');
+// IMPORTANT: Place specific routes BEFORE parameterized routes
+// Webhook routes should be at the top
+router.get('/partners/webhook-config', webhookMiddleware, partnerController.getWebhookConfig);
+router.post('/partners/webhook-config', webhookMiddleware, partnerController.updateWebhookConfig);
+
 /**
  * @swagger
  * tags:
@@ -249,6 +255,11 @@ router.get('/partners/current', currentPartnerMiddleware, (req, res) => {
   
     res.status(200).json({ partner: req.current_partner });
   });
+
+  router.get('/partners/current/webhookLogs', currentPartnerMiddleware, partnerController.getCurrentPartnerWebhookLogs);
+
+router.get('/webhookLogs/:id', authenticateToken, partnerController.getWebhookLogById);
+
   
   /**
  * @swagger
@@ -333,4 +344,8 @@ router.get('/partners/:partnerId/api-keys', partnerController.getApiKeys);
  */
 router.post('/partners/logout', authenticateToken, partnerController.logout);
 
+router.post('/partners/:partnerId/staged-request', 
+  authenticatePartner,  // Add this middleware
+  stagedRequestController.createStagedRequest
+);
 module.exports = router;

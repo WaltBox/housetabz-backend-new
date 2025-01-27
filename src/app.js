@@ -32,14 +32,16 @@ const referrerRoutes = require('./routes/referrerRoutes');
 // Initialize Express app
 const app = express();
 
-// Middleware
-app.use(cors({
+// Define CORS options
+const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
-      'https://www.housetabz.com', // Production domain
-      'http://localhost:3000',    // Local frontend
-      'http://127.0.0.1:3000',    // Localhost frontend IP
-      'http://localhost:3004',    // Swagger or backend requests
+      'https://www.housetabz.com',    // Production domain
+      'http://localhost:3000',        // Local frontend
+      'http://127.0.0.1:3000',        // Localhost frontend IP
+      'http://localhost:3004',        // Swagger or backend requests
+      'http://localhost:3004/api-docs',
+      'http://localhost:8080'         // SDK testing
     ];
 
     // Allow requests with no origin (e.g., Postman or internal tools)
@@ -50,29 +52,26 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed HTTP methods
-  credentials: true, // Allow credentials
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'X-HouseTabz-API-Key', 
+    'X-HouseTabz-Secret-Key',
+    'Origin', 
+    'Accept',
+    'Authorization'
+  ],
+  credentials: true
+};
 
 
+// Apply middleware (order is important)
+app.use(cors(corsOptions));                   // CORS must be first
+app.use(express.json());                      // Parse JSON bodies
+app.use(morgan(':method :url :status :response-time ms - :remote-addr')); // Logging
 
-// Log unauthorized origins
-app.use((req, res, next) => {
-  const allowedOrigins = ['https://www.housetabz.com', 'http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3004'];
-  const origin = req.headers.origin;
-
-  if (!origin || allowedOrigins.includes(origin)) {
-    next(); // Allow the request
-  } else {
-    console.log(`Blocked request from unauthorized origin: ${origin}`);
-    res.status(403).json({ message: 'Access denied.' });
-  }
-});
-
-app.use(express.json());
-app.use(morgan(':method :url :status :response-time ms - :remote-addr'));
+// Apply rate limiting and path blocking
 app.use(limiter);
-
 app.use(blockPaths);
 
 // Serve static files
@@ -81,7 +80,7 @@ app.use('/uploads', express.static('uploads'));
 // Swagger setup
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Routes
+// Apply routes
 app.use('/api/users', userRoutes);
 app.use('/api/houses', houseRoutes);
 app.use('/api', partnerRoutes);
@@ -128,12 +127,14 @@ app.use((err, req, res, next) => {
     await sequelize.sync({ alter: true });
     console.log('Database synced');
 
-    const port = config.port; // Access the correct port value
+    const port = config.port;
     app.listen(port, () => {
       console.log(`Server running in ${environment} mode on port ${port}`);
     });
   } catch (error) {
     console.error('Unable to start the server:', error.message);
-    process.exit(1); // Exit if there’s a fatal error
+    process.exit(1); // Exit if there's a fatal error
   }
 })();
+
+module.exports = app;
