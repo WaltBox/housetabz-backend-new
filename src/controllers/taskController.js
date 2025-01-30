@@ -30,26 +30,44 @@ const taskController = {
   async updateTask(req, res) {
     try {
       const { taskId } = req.params;
-      const { response } = req.body;
+      const { response, paymentTransactionId } = req.body;
 
       if (!['accepted', 'rejected'].includes(response)) {
-        return res.status(400).json({ error: 'Invalid response value. Must be "accepted" or "rejected".' });
+        return res.status(400).json({ error: 'Invalid response value' });
       }
 
-      const task = await Task.findByPk(taskId);
+      const task = await Task.findByPk(taskId, {
+        include: [{
+          model: ServiceRequestBundle,
+          include: [{ model: StagedRequest }]
+        }]
+      });
+
       if (!task) {
         return res.status(404).json({ error: 'Task not found' });
       }
 
+      // Update task response and status
       task.response = response;
       task.status = response === 'accepted';
+
+      // Handle payment if required
+      if (task.paymentRequired && response === 'accepted') {
+        if (!paymentTransactionId) {
+          return res.status(400).json({ 
+            error: 'Payment transaction ID required for tasks requiring payment' 
+          });
+        }
+        task.paymentTransactionId = paymentTransactionId;
+        task.paymentStatus = 'completed';
+      }
+
       await task.save();
 
       if (task.status) {
         const bundle = await ServiceRequestBundle.findByPk(task.serviceRequestBundleId);
-
         if (bundle) {
-          await bundle.updateStatusIfAllTasksAccepted();
+          await bundle.updateStatusIfAllTasksCompleted();  // Note: using new method name
         }
       }
 
@@ -60,5 +78,6 @@ const taskController = {
     }
   },
 };
+
 
 module.exports = taskController;

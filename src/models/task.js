@@ -1,11 +1,12 @@
+
 module.exports = (sequelize, DataTypes) => {
   const Task = sequelize.define('Task', {
     type: {
-      type: DataTypes.STRING, // e.g., 'service_request'
+      type: DataTypes.STRING,
       allowNull: false,
     },
     status: {
-      type: DataTypes.BOOLEAN, // true if completed
+      type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
     userId: {
@@ -14,7 +15,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     serviceRequestBundleId: {
       type: DataTypes.INTEGER,
-      allowNull: true, // Nullable for non-service-request tasks
+      allowNull: true,
       references: {
         model: 'ServiceRequestBundles',
         key: 'id',
@@ -22,9 +23,38 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'CASCADE',
     },
     response: {
-      type: DataTypes.STRING, // 'accepted' or 'rejected'
-      allowNull: true,
+      type: DataTypes.ENUM('pending', 'accepted', 'rejected'),
+      defaultValue: 'pending',
     },
+    paymentRequired: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    paymentAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      comment: 'Individual roommate share of any upfront payment'
+    },
+    paymentStatus: {
+      type: DataTypes.ENUM('not_required', 'pending', 'completed'),
+      defaultValue: 'not_required'
+    },
+    paymentTransactionId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Reference to payment transaction if payment was required'
+    }
+  });
+
+  Task.addHook('afterUpdate', async (task) => {
+    if (task.paymentStatus === 'completed' && task.paymentAmount) {
+      const bundle = await task.getServiceRequestBundle();
+      if (bundle) {
+        bundle.totalPaidUpfront += task.paymentAmount;
+        await bundle.save();
+        await bundle.updateStatusIfAllTasksCompleted();
+      }
+    }
   });
 
   Task.associate = (models) => {
