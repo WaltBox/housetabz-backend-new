@@ -32,6 +32,22 @@ router.get('/', taskController.getTasks);
  */
 router.get('/user/:userId', taskController.getTasksByUser);
 
+
+/**
+ * @swagger
+ * /tasks/{taskId}:
+ *   get:
+ *     summary: Get task status including payment info
+ *     tags: [Tasks]
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ */
+router.get('/:taskId', taskController.getTaskStatus);
+
 /**
  * @swagger
  * /tasks/{taskId}:

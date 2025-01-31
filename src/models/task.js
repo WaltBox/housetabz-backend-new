@@ -43,6 +43,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
       comment: 'Reference to payment transaction if payment was required'
+    },
+    paymentDueDate: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   });
 
