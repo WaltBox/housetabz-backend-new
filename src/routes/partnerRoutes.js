@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
+
 const partnerController = require('../controllers/partnerController');
 const stagedRequestController = require('../controllers/stagedRequestController');
 const authenticatePartner = require('../middleware/authenticatePartner');
@@ -18,6 +21,15 @@ router.post('/partners/webhook-config', webhookMiddleware, partnerController.upd
  *   description: API for managing partner services
  */
 
+router.put('/partners/update-marketplace',
+  currentPartnerMiddleware,
+  upload.fields([
+    { name: 'logo', maxCount: 1 },
+    { name: 'marketplace_cover', maxCount: 1 },
+    { name: 'company_cover', maxCount: 1 }
+  ]),
+  partnerController.updateMarketplaceSettings
+);
 /**
  * @swagger
  * /partners/create:
@@ -288,6 +300,7 @@ router.get('/webhookLogs/:id', authenticateToken, partnerController.getWebhookLo
  */
 router.get('/partners/:partnerId', partnerController.getPartnerById);
 
+
 /**
  * @swagger
  * /partners/{partnerId}/api-keys:
@@ -343,6 +356,43 @@ router.get('/partners/:partnerId/api-keys', partnerController.getApiKeys);
  *         description: Failed to log out.
  */
 router.post('/partners/logout', authenticateToken, partnerController.logout);
+
+/**
+ * @swagger
+ * /partners/update-marketplace:
+ *   put:
+ *     summary: Update partner marketplace settings
+ *     description: Update partner's about section and upload images for logo and covers
+ *     tags: [Partners]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               about:
+ *                 type: string
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *               marketplace_cover:
+ *                 type: string
+ *                 format: binary
+ *               company_cover:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Marketplace settings updated successfully
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+
 
 router.post('/partners/:partnerId/staged-request', 
   authenticatePartner,  // Add this middleware

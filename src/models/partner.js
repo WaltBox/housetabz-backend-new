@@ -5,7 +5,6 @@ const bcrypt = require('bcrypt');
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
     static associate(models) {
-    
       Partner.hasMany(models.StagedRequest, {
         foreignKey: 'partnerId',
         as: 'stagedRequests'
@@ -13,13 +12,10 @@ module.exports = (sequelize, DataTypes) => {
 
       Partner.hasMany(models.WebhookLog, {
         foreignKey: 'partner_id',
-        as: 'webhookLogs'  // Make sure this matches
+        as: 'webhookLogs'
       });
-
-
     }
 
-    // Instance method to verify password
     async verifyPassword(password) {
       return bcrypt.compare(password, this.password);
     }
@@ -44,14 +40,32 @@ module.exports = (sequelize, DataTypes) => {
       logo: {
         type: DataTypes.STRING,
         allowNull: true,
+        comment: 'S3 URL for the partner logo',
+      },
+      logo_key: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'S3 key for the partner logo',
       },
       marketplace_cover: {
         type: DataTypes.STRING,
         allowNull: true,
+        comment: 'S3 URL for the marketplace cover image',
+      },
+      marketplace_cover_key: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'S3 key for the marketplace cover image',
       },
       company_cover: {
         type: DataTypes.STRING,
         allowNull: true,
+        comment: 'S3 URL for the company cover image',
+      },
+      company_cover_key: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'S3 key for the company cover image',
       },
       avg_price: {
         type: DataTypes.DECIMAL(10, 2),
@@ -76,7 +90,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       email: {
         type: DataTypes.STRING,
-        allowNull: true, // Allow null initially
+        allowNull: true,
         unique: true,
         validate: {
           isEmail: true,
@@ -84,7 +98,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       password: {
         type: DataTypes.STRING,
-        allowNull: true, // Allow null initially
+        allowNull: true,
       },
       webhookUrl: {
         type: DataTypes.STRING,
@@ -98,16 +112,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
       }
-      
     },
     {
       sequelize,
       modelName: 'Partner',
       tableName: 'Partners',
       underscored: true,
-      timestamps: true, // Add timestamps
+      timestamps: true,
       hooks: {
-        // Hash password before saving
         beforeSave: async (partner) => {
           try {
             if (partner.changed('password')) {
@@ -119,6 +131,26 @@ module.exports = (sequelize, DataTypes) => {
             throw new Error('Failed to hash password.');
           }
         },
+        // Add hook to clean up S3 files when partner is deleted
+        beforeDestroy: async (partner) => {
+          try {
+            const s3Service = require('./services/s3Service');
+            // Delete all associated S3 files
+            const keys = [
+              partner.logo_key,
+              partner.marketplace_cover_key,
+              partner.company_cover_key
+            ].filter(Boolean);
+
+            for (const key of keys) {
+              await s3Service.deleteFile(key);
+            }
+          } catch (error) {
+            console.error('Error deleting S3 files:', error);
+            // Consider whether to throw or just log the error
+            throw new Error('Failed to delete S3 files.');
+          }
+        }
       },
     }
   );

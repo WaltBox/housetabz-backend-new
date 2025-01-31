@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-
+const S3Service = require('../services/S3Service');
 const generateWebhookSecret = () => {
   return `whsec_${crypto.randomBytes(32).toString('hex')}`;  // Added prefix for clarity
 };
@@ -388,6 +388,58 @@ const partnerController = {
     } catch (error) {
       console.error('Error fetching webhook config:', error);
       res.status(500).json({ error: 'Failed to fetch webhook configuration' });
+    }
+  },
+
+  async updateMarketplaceSettings(req, res) {
+    try {
+      const partnerId = req.current_partner.id;
+      const partner = await Partner.findByPk(partnerId);
+      
+      if (!partner) {
+        return res.status(404).json({ error: 'Partner not found' });
+      }
+  
+      // Update text fields
+      if (req.body.about) {
+        partner.about = req.body.about;
+      }
+  
+      // Handle file uploads
+      const fileTypes = ['logo', 'marketplace_cover', 'company_cover'];
+      
+      for (const fileType of fileTypes) {
+        if (req.files && req.files[fileType]) {
+          const file = req.files[fileType][0];
+          
+          // Delete old file if exists
+          if (partner[`${fileType}_key`]) {
+            await S3Service.deleteFile(partner[`${fileType}_key`]);
+          }
+          
+          // Upload new file
+          const { url, key } = await S3Service.uploadFile(file, 'partner-images');
+          
+          // Update database
+          partner[fileType] = url;
+          partner[`${fileType}_key`] = key;
+        }
+      }
+  
+      await partner.save();
+      
+      res.json({ 
+        message: 'Marketplace settings updated successfully',
+        partner: {
+          about: partner.about,
+          logo: partner.logo,
+          marketplace_cover: partner.marketplace_cover,
+          company_cover: partner.company_cover
+        }
+      });
+    } catch (error) {
+      console.error('Update marketplace settings error:', error);
+      res.status(500).json({ error: 'Failed to update marketplace settings' });
     }
   }
 };
