@@ -54,7 +54,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  // Handle task status updates before save
+  // Before saving, update task status based on paymentStatus and response changes.
   Task.addHook('beforeSave', async (task, options) => {
     if (task.changed('paymentStatus') && task.paymentStatus === 'completed') {
       if (task.response === 'accepted') {
@@ -66,65 +66,65 @@ module.exports = (sequelize, DataTypes) => {
       if (task.response === 'rejected') {
         task.status = true; // Task is complete when rejected
       } else if (task.response === 'accepted' && !task.paymentRequired) {
-        task.status = true; // Task is complete if accepted and no payment needed
+        task.status = true; // Task is complete if accepted and no payment is needed
       }
     }
   });
 
-  // Handle bundle updates after save
+  // After saving a task, update the related ServiceRequestBundle accordingly.
   Task.addHook('afterSave', async (task, options) => {
+    let transaction = options.transaction;
+    let localTransaction = false;
+
+    if (!transaction) {
+      transaction = await sequelize.transaction();
+      localTransaction = true;
+    }
+
     try {
-      const transaction = options.transaction || await sequelize.transaction();
+      // If payment status changed to completed (and payment is required), update the bundle's paid total.
+      if (task.changed('paymentStatus') &&
+          task.paymentStatus === 'completed' &&
+          task.paymentRequired) {
 
-      try {
-        // Handle payment updates
-        if (task.changed('paymentStatus') && 
-            task.paymentStatus === 'completed' && 
-            task.paymentRequired) {
+        const bundle = await task.getServiceRequestBundle({ transaction });
+        if (bundle) {
+          console.log('Processing payment update:', {
+            taskId: task.id,
+            bundleId: bundle.id,
+            currentTotal: bundle.totalPaidUpfront,
+            addingAmount: task.paymentAmount
+          });
 
-          const bundle = await task.getServiceRequestBundle({ transaction });
-          if (bundle) {
-            console.log('Processing payment update:', {
-              taskId: task.id,
-              bundleId: bundle.id,
-              currentTotal: bundle.totalPaidUpfront,
-              addingAmount: task.paymentAmount
-            });
-
-            const currentTotal = Number(bundle.totalPaidUpfront || 0);
-            const paymentAmount = Number(task.paymentAmount || 0);
-            bundle.totalPaidUpfront = (currentTotal + paymentAmount).toFixed(2);
-            await bundle.save({ transaction });
-
-            await bundle.updateStatusIfAllTasksCompleted();
-          }
+          const currentTotal = Number(bundle.totalPaidUpfront || 0);
+          const paymentAmount = Number(task.paymentAmount || 0);
+          await bundle.update(
+            { totalPaidUpfront: (currentTotal + paymentAmount).toFixed(2) },
+            { transaction }
+          );
+          await bundle.updateStatusIfAllTasksCompleted({ transaction });
         }
-
-        // Handle status/response updates
-        if (task.changed('status') || task.changed('response')) {
-          const bundle = await task.getServiceRequestBundle({ transaction });
-          if (bundle) {
-            if (task.response === 'rejected') {
-              bundle.status = 'rejected';
-              await bundle.save({ transaction });
-
-              const stagedRequest = await bundle.getStagedRequest({ transaction });
-              if (stagedRequest) {
-                stagedRequest.status = 'rejected';
-                await stagedRequest.save({ transaction });
-              }
-            } else if (task.status === true) {
-              await bundle.updateStatusIfAllTasksCompleted();
-            }
-          }
-        }
-
-        if (!options.transaction) await transaction.commit();
-      } catch (error) {
-        if (!options.transaction) await transaction.rollback();
-        throw error;
       }
+
+      // If the task's status or response has changed, check if the bundle should update.
+      if (task.changed('status') || task.changed('response')) {
+        const bundle = await task.getServiceRequestBundle({ transaction });
+        if (bundle) {
+          if (task.response === 'rejected') {
+            await bundle.update({ status: 'rejected' }, { transaction });
+            const stagedRequest = await bundle.getStagedRequest({ transaction });
+            if (stagedRequest) {
+              await stagedRequest.update({ status: 'rejected' }, { transaction });
+            }
+          } else if (task.status === true) {
+            await bundle.updateStatusIfAllTasksCompleted({ transaction });
+          }
+        }
+      }
+
+      if (localTransaction) await transaction.commit();
     } catch (error) {
+      if (localTransaction) await transaction.rollback();
       console.error('Error in Task afterSave hook:', error);
       throw error;
     }

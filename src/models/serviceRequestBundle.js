@@ -1,4 +1,6 @@
 // src/models/ServiceRequestBundle.js
+const webhookService = require('../services/webhookService');
+
 module.exports = (sequelize, DataTypes) => {
   const ServiceRequestBundle = sequelize.define('ServiceRequestBundle', {
     houseId: {
@@ -65,53 +67,54 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function() {
+  ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function(options = {}) {
+    const transaction = options.transaction;
     try {
-      // Get all tasks and staged request
+      // Get all tasks and the staged request within the same transaction context
       const [tasks, stagedRequest] = await Promise.all([
         sequelize.models.Task.findAll({
-          where: { serviceRequestBundleId: this.id }
+          where: { serviceRequestBundleId: this.id },
+          transaction
         }),
-        sequelize.models.StagedRequest.findByPk(this.stagedRequestId)
+        sequelize.models.StagedRequest.findByPk(this.stagedRequestId, { transaction })
       ]);
 
       if (!stagedRequest) return;
 
-      // Calculate total paid
+      // Calculate total paid based on tasks with completed payments
       const totalPaid = tasks
         .filter(task => task.paymentStatus === 'completed')
         .reduce((sum, task) => sum + Number(task.paymentAmount || 0), 0);
 
-      // Check all conditions
+      // Check conditions: all tasks are complete, accepted, and required payments are met
       const allTasksComplete = tasks.every(task => task.status === true);
       const allTasksAccepted = tasks.every(task => task.response === 'accepted');
-      const allPaymentsMet = totalPaid >= Number(stagedRequest.requiredUpfrontPayment || 0);
+      const requiredPayment = Number(stagedRequest.requiredUpfrontPayment || 0);
+      const allPaymentsMet = totalPaid >= requiredPayment;
 
-      // Log the check
       console.log('Status check:', {
         bundleId: this.id,
         totalPaid,
-        requiredPayment: stagedRequest.requiredUpfrontPayment,
+        requiredPayment,
         allTasksComplete,
         allTasksAccepted,
         allPaymentsMet,
         taskCount: tasks.length
       });
 
-      // Update total paid if needed
-      if (this.totalPaidUpfront !== totalPaid) {
-        await this.update({ totalPaidUpfront: totalPaid });
+      // Update the totalPaidUpfront if there is a discrepancy
+      if (Number(this.totalPaidUpfront) !== totalPaid) {
+        await this.update({ totalPaidUpfront: totalPaid.toFixed(2) }, { transaction });
       }
 
-      // Update statuses if all conditions are met
+      // If every task is complete, accepted, and payments meet the required amount,
+      // update the bundle and the related staged request, then send the webhook.
       if (allTasksComplete && allTasksAccepted && allPaymentsMet) {
-        // Update both statuses
         await Promise.all([
-          this.update({ status: 'accepted' }),
-          stagedRequest.update({ status: 'authorized' })
+          this.update({ status: 'accepted' }, { transaction }),
+          stagedRequest.update({ status: 'authorized' }, { transaction })
         ]);
 
-        // Send webhook
         try {
           await webhookService.sendWebhook(
             stagedRequest.partnerId,
