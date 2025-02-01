@@ -1,9 +1,7 @@
-const { ServiceRequestBundle, Task, User } = require('../models');
+const { ServiceRequestBundle, Task, User, StagedRequest } = require('../models');
 const Sequelize = require('sequelize');
 
-
 const serviceRequestBundleController = {
-  // Create a ServiceRequestBundle based on a StagedRequest
   async createServiceRequestBundle(req, res) {
     try {
       const { userId, stagedRequestId } = req.body;
@@ -13,10 +11,19 @@ const serviceRequestBundleController = {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
+      // Ensure userId is treated as a string for comparison
+      const creatorId = String(userId);
+
       // Fetch user and their houseId
       const user = await User.findByPk(userId);
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Fetch the staged request to get payment details
+      const stagedRequest = await StagedRequest.findByPk(stagedRequestId);
+      if (!stagedRequest) {
+        return res.status(404).json({ error: 'Staged request not found' });
       }
 
       // Create the ServiceRequestBundle
@@ -25,28 +32,49 @@ const serviceRequestBundleController = {
         userId,
         stagedRequestId,
         status: 'pending',
+        totalPaidUpfront: 0
       });
 
-      // Fetch all roommates except the creator
-      const roommates = await User.findAll({
-        where: {
-          houseId: user.houseId,
-          id: { [Sequelize.Op.ne]: userId },
-        },
+      // Fetch ALL roommates INCLUDING the creator
+      const allRoommates = await User.findAll({
+        where: { houseId: user.houseId }
       });
 
-      // Create tasks for roommates
-      const tasks = roommates.map((roommate) => ({
-        userId: roommate.id,
-        serviceRequestBundleId: serviceRequestBundle.id,
-        type: 'service_request',
-        status: false,
-      }));
-      await Task.bulkCreate(tasks);
+      // Calculate individual payment if required
+      const totalRoommates = allRoommates.length;
+      const individualPaymentAmount = stagedRequest.requiredUpfrontPayment ? 
+        (stagedRequest.requiredUpfrontPayment / totalRoommates).toFixed(2) : null;
+
+      // Create tasks for all users
+      const tasks = allRoommates.map((roommate) => {
+        const isCreator = String(roommate.id) === creatorId;
+        
+        return {
+          userId: roommate.id,
+          serviceRequestBundleId: serviceRequestBundle.id,
+          type: 'service_request',
+          status: isCreator, // Will be true for creator
+          response: isCreator ? 'accepted' : 'pending',
+          paymentRequired: !!stagedRequest.requiredUpfrontPayment,
+          paymentAmount: individualPaymentAmount,
+          paymentStatus: stagedRequest.requiredUpfrontPayment ? 'pending' : 'not_required'
+        };
+      });
+
+      // Log task creation details for debugging
+      console.log('Creating tasks:', tasks.map(task => ({
+        userId: task.userId,
+        isCreator: String(task.userId) === creatorId,
+        status: task.status,
+        response: task.response
+      })));
+
+      const createdTasks = await Task.bulkCreate(tasks);
 
       res.status(201).json({
         message: 'Service request bundle created successfully',
         serviceRequestBundle,
+        tasks: createdTasks
       });
     } catch (error) {
       console.error('Error creating service request bundle:', error);
@@ -54,12 +82,10 @@ const serviceRequestBundleController = {
     }
   },
 
-  // Fetch all ServiceRequestBundles, optionally filtered by houseId
+  // Rest of the controller methods remain the same...
   async getServiceRequestBundles(req, res) {
     try {
       const { houseId } = req.query;
-
-      // Filter bundles by houseId if provided
       const condition = houseId ? { houseId } : {};
       const serviceRequestBundles = await ServiceRequestBundle.findAll({
         where: condition,
@@ -76,11 +102,9 @@ const serviceRequestBundleController = {
     }
   },
 
-  // Fetch a specific ServiceRequestBundle by ID
   async getServiceRequestBundleById(req, res) {
     try {
       const { id } = req.params;
-
       const serviceRequestBundle = await ServiceRequestBundle.findByPk(id, {
         include: [{ model: Task, as: 'tasks' }],
       });
@@ -99,7 +123,6 @@ const serviceRequestBundleController = {
     }
   },
 
-  // Update the status of a ServiceRequestBundle
   async updateServiceRequestBundle(req, res) {
     try {
       const { id } = req.params;
@@ -110,22 +133,15 @@ const serviceRequestBundleController = {
       }
   
       const serviceRequestBundle = await ServiceRequestBundle.findByPk(id, {
-        include: [
-          {
-            model: StagedRequest,
-            include: [{ model: Partner }]
-          }
-        ]
+        include: [{ model: StagedRequest }]
       });
   
       if (!serviceRequestBundle) {
         return res.status(404).json({ error: 'Service request bundle not found' });
       }
   
-      // Update status
       serviceRequestBundle.status = status;
       await serviceRequestBundle.save();
-  
   
       res.status(200).json({
         message: 'Service request bundle updated successfully',
@@ -137,11 +153,9 @@ const serviceRequestBundleController = {
     }
   },
 
-  // Delete a ServiceRequestBundle
   async deleteServiceRequestBundle(req, res) {
     try {
       const { id } = req.params;
-
       const serviceRequestBundle = await ServiceRequestBundle.findByPk(id);
 
       if (!serviceRequestBundle) {
@@ -149,7 +163,6 @@ const serviceRequestBundleController = {
       }
 
       await serviceRequestBundle.destroy();
-
       res.status(200).json({ message: 'Service request bundle deleted successfully' });
     } catch (error) {
       console.error('Error deleting service request bundle:', error);

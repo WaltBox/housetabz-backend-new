@@ -1,7 +1,6 @@
 // src/models/ServiceRequestBundle.js
 module.exports = (sequelize, DataTypes) => {
   const ServiceRequestBundle = sequelize.define('ServiceRequestBundle', {
-    // House ID that this bundle belongs to
     houseId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -9,8 +8,6 @@ module.exports = (sequelize, DataTypes) => {
         notNull: { msg: 'House ID is required' }
       }
     },
-
-    // User ID of the person who created the bundle
     userId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -18,8 +15,6 @@ module.exports = (sequelize, DataTypes) => {
         notNull: { msg: 'User ID is required' }
       }
     },
-
-    // Reference to the staged request
     stagedRequestId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -27,8 +22,6 @@ module.exports = (sequelize, DataTypes) => {
         notNull: { msg: 'Staged Request ID is required' }
       }
     },
-
-    // Bundle status (pending, accepted, rejected)
     status: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -40,8 +33,6 @@ module.exports = (sequelize, DataTypes) => {
         }
       }
     },
-
-    // Total amount paid upfront by all roommates
     totalPaidUpfront: {
       type: DataTypes.DECIMAL(10, 2),
       defaultValue: 0.00,
@@ -54,139 +45,95 @@ module.exports = (sequelize, DataTypes) => {
         if (isNaN(numValue)) {
           throw new Error('Invalid numeric value for totalPaidUpfront');
         }
-        this.setDataValue('totalPaidUpfront', Number(numValue).toFixed(2));
-      },
-      validate: {
-        isDecimal: true,
-        min: 0
+        this.setDataValue('totalPaidUpfront', numValue.toFixed(2));
       }
     }
-  }, {
-    indexes: [
-      { fields: ['houseId'] },
-      { fields: ['userId'] },
-      { fields: ['stagedRequestId'] },
-      { fields: ['status'] }
-    ]
   });
 
-  // Define associations
   ServiceRequestBundle.associate = function(models) {
     ServiceRequestBundle.belongsTo(models.StagedRequest, {
       foreignKey: 'stagedRequestId',
       as: 'stagedRequest'
     });
-
     ServiceRequestBundle.hasMany(models.Task, {
       foreignKey: 'serviceRequestBundleId',
       as: 'tasks'
     });
-
     ServiceRequestBundle.belongsTo(models.User, {
       foreignKey: 'userId',
       as: 'creator'
     });
   };
 
-  // Method to check and update bundle status
-  ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function () {
-    const transaction = await sequelize.transaction();
-    
+  ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function() {
     try {
-      // Get the associated staged request
-      const stagedRequest = await sequelize.models.StagedRequest.findByPk(
-        this.stagedRequestId,
-        { transaction }
-      );
-      
-      if (!stagedRequest) {
-        throw new Error('Associated StagedRequest not found');
-      }
+      // Get all tasks and staged request
+      const [tasks, stagedRequest] = await Promise.all([
+        sequelize.models.Task.findAll({
+          where: { serviceRequestBundleId: this.id }
+        }),
+        sequelize.models.StagedRequest.findByPk(this.stagedRequestId)
+      ]);
 
-      // Get all tasks for this bundle
-      const tasks = await sequelize.models.Task.findAll({
-        where: { serviceRequestBundleId: this.id },
-        transaction
-      });
+      if (!stagedRequest) return;
 
-      // Check conditions for completion
+      // Calculate total paid
+      const totalPaid = tasks
+        .filter(task => task.paymentStatus === 'completed')
+        .reduce((sum, task) => sum + Number(task.paymentAmount || 0), 0);
+
+      // Check all conditions
+      const allTasksComplete = tasks.every(task => task.status === true);
       const allTasksAccepted = tasks.every(task => task.response === 'accepted');
-      const tasksRequiringPayment = tasks.filter(task => task.paymentRequired);
-      const allPaymentsCompleted = tasksRequiringPayment.every(
-        task => task.paymentStatus === 'completed'
-      );
+      const allPaymentsMet = totalPaid >= Number(stagedRequest.requiredUpfrontPayment || 0);
 
-      // Check upfront payment requirement
-      const requiredUpfrontPayment = Number(stagedRequest.requiredUpfrontPayment || 0);
-      const currentPaidUpfront = Number(this.totalPaidUpfront || 0);
-      const upfrontPaymentMet = requiredUpfrontPayment === 0 || 
-                               currentPaidUpfront >= requiredUpfrontPayment;
-
-      // Log the status check
-      console.log('Bundle status check:', {
+      // Log the check
+      console.log('Status check:', {
         bundleId: this.id,
+        totalPaid,
+        requiredPayment: stagedRequest.requiredUpfrontPayment,
+        allTasksComplete,
         allTasksAccepted,
-        allPaymentsCompleted,
-        upfrontPaymentMet,
-        requiredUpfrontPayment,
-        currentPaidUpfront
+        allPaymentsMet,
+        taskCount: tasks.length
       });
 
-      // Update status if all conditions are met
-      if (allTasksAccepted && allPaymentsCompleted && upfrontPaymentMet && 
-          this.status !== 'accepted') {
-        this.status = 'accepted';
-        await this.save({ transaction });
-
-        // Update staged request status
-        stagedRequest.status = 'authorized';
-        await stagedRequest.save({ transaction });
-
-        console.log(`Bundle ${this.id} and staged request ${stagedRequest.id} updated to accepted/authorized`);
+      // Update total paid if needed
+      if (this.totalPaidUpfront !== totalPaid) {
+        await this.update({ totalPaidUpfront: totalPaid });
       }
 
-      await transaction.commit();
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error in updateStatusIfAllTasksCompleted:', error);
-      throw error;
-    }
-  };
+      // Update statuses if all conditions are met
+      if (allTasksComplete && allTasksAccepted && allPaymentsMet) {
+        // Update both statuses
+        await Promise.all([
+          this.update({ status: 'accepted' }),
+          stagedRequest.update({ status: 'authorized' })
+        ]);
 
-  // Hook to check status after payment updates
-  ServiceRequestBundle.addHook('afterUpdate', async (bundle, options) => {
-    try {
-      // If totalPaidUpfront changed, check if we need to update status
-      if (bundle.changed('totalPaidUpfront')) {
-        await bundle.updateStatusIfAllTasksCompleted();
-      }
-      
-      // If status changed to accepted, ensure staged request is updated
-      if (bundle.changed('status') && bundle.status === 'accepted') {
-        const transaction = options.transaction || await sequelize.transaction();
-        
+        // Send webhook
         try {
-          const stagedRequest = await sequelize.models.StagedRequest.findByPk(
-            bundle.stagedRequestId,
-            { transaction }
+          await webhookService.sendWebhook(
+            stagedRequest.partnerId,
+            'request.authorized',
+            {
+              stagedRequestId: stagedRequest.id,
+              status: 'authorized',
+              transactionId: stagedRequest.transactionId,
+              serviceName: stagedRequest.serviceName,
+              serviceType: stagedRequest.serviceType,
+              estimatedAmount: stagedRequest.estimatedAmount,
+              requiredUpfrontPayment: stagedRequest.requiredUpfrontPayment
+            }
           );
-          
-          if (stagedRequest) {
-            stagedRequest.status = 'authorized';
-            await stagedRequest.save({ transaction });
-          }
-
-          if (!options.transaction) await transaction.commit();
         } catch (error) {
-          if (!options.transaction) await transaction.rollback();
-          throw error;
+          console.error('Webhook error:', error);
         }
       }
     } catch (error) {
-      console.error('Error in afterUpdate hook:', error);
-      throw error;
+      console.error('Error updating bundle status:', error);
     }
-  });
+  };
 
   return ServiceRequestBundle;
 };
