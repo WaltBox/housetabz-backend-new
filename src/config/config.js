@@ -49,4 +49,3 @@ module.exports = {
 // zip -r app.zip . -x node_modules/\* .env
 
 // npx sequelize-cli db:migrate --env development_local
-
