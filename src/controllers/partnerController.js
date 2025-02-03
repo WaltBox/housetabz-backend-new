@@ -280,10 +280,20 @@ const partnerController = {
   async getAllPartners(req, res) {
     try {
       const partners = await Partner.findAll({
-        attributes: ['id', 'name', 'logo', 'about', 'email', 'phone_number'],
+        attributes: [
+          'id',
+          'name',
+          'logo',
+          'about',
+          'marketplace_cover',
+          'company_cover',
+          'email',
+          'phone_number',
+          'link'
+        ],
       });
-
-      res.status(200).json({ partners });
+  
+      res.status(200).json(partners); // Return array directly instead of wrapping in {partners}
     } catch (error) {
       console.error('Error fetching partners:', error);
       res.status(500).json({ error: 'Failed to fetch partners' });
@@ -308,7 +318,6 @@ const partnerController = {
       res.status(500).json({ error: 'Failed to fetch partner' });
     }
   },
-
   // Stage authorization
   async stageAuthorization(req, res) {
     try {

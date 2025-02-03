@@ -111,7 +111,12 @@ module.exports = (sequelize, DataTypes) => {
       webhookEnabled: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
-      }
+      },
+      link: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'URL to the partner landing page',
+      },
     },
     {
       sequelize,
