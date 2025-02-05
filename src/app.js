@@ -29,6 +29,7 @@ const contactRoutes = require('./routes/contactRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
 const referrerRoutes = require('./routes/referrerRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const confirmRequestRoutes = require('./routes/confirm-request');
 // Initialize Express app
 const app = express();
 
@@ -36,12 +37,14 @@ const app = express();
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
-      'https://www.housetabz.com',    // Production domain
-      'http://localhost:3000',        // Local frontend
-      'http://127.0.0.1:3000',        // Localhost frontend IP
-      'http://localhost:3004',        // Swagger or backend requests
+      'https://www.housetabz.com',    
+      'http://localhost:3000',        
+      'http://127.0.0.1:3000',        
+      'http://localhost:3004',        
       'http://localhost:3004/api-docs',
-      'http://localhost:8080'         // SDK testing
+      'http://localhost:8080',        // SDK testing
+      'housetabz.com',               // For confirm page
+      'https://housetabz.com'        // For confirm page
     ];
 
     // Allow requests with no origin (e.g., Postman or internal tools)
@@ -96,6 +99,8 @@ app.use('/api/partner-forms', partnerFormRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/referral-program', referrerRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/confirm-request', confirmRequestRoutes);
+
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });

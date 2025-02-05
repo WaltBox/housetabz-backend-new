@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 module.exports = (sequelize, DataTypes) => {
   class Partner extends Model {
     static associate(models) {
+      // Existing associations
       Partner.hasMany(models.StagedRequest, {
         foreignKey: 'partnerId',
         as: 'stagedRequests'
@@ -13,6 +14,12 @@ module.exports = (sequelize, DataTypes) => {
       Partner.hasMany(models.WebhookLog, {
         foreignKey: 'partner_id',
         as: 'webhookLogs'
+      });
+
+      // New association for the PartnerKey
+      Partner.hasOne(models.PartnerKey, {
+        foreignKey: 'partnerId',
+        as: 'partnerKey'
       });
     }
 
@@ -136,11 +143,10 @@ module.exports = (sequelize, DataTypes) => {
             throw new Error('Failed to hash password.');
           }
         },
-        // Add hook to clean up S3 files when partner is deleted
+        // Hook to clean up S3 files when a partner is deleted
         beforeDestroy: async (partner) => {
           try {
             const s3Service = require('./services/s3Service');
-            // Delete all associated S3 files
             const keys = [
               partner.logo_key,
               partner.marketplace_cover_key,
@@ -152,7 +158,6 @@ module.exports = (sequelize, DataTypes) => {
             }
           } catch (error) {
             console.error('Error deleting S3 files:', error);
-            // Consider whether to throw or just log the error
             throw new Error('Failed to delete S3 files.');
           }
         }
