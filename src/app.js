@@ -44,7 +44,9 @@ const corsOptions = {
       'http://localhost:3004/api-docs',
       'http://localhost:8080',        // SDK testing
       'housetabz.com',               // For confirm page
-      'https://housetabz.com'        // For confirm page
+      'https://housetabz.com',
+      'http://localhost:8081',
+      'http://localhost:3002'
     ];
 
     // Allow requests with no origin (e.g., Postman or internal tools)
