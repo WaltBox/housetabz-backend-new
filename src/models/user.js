@@ -32,19 +32,18 @@ module.exports = (sequelize, DataTypes) => {
     balance: {
       type: DataTypes.FLOAT,
       allowNull: false,
-      defaultValue: 0.0, // New balance field with default value of 0
+      defaultValue: 0.0,
     },
     points: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 0,  // Default points value
+      defaultValue: 0,
     },
     credit: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 0,  // Default credit value
+      defaultValue: 0,
     }
-    
   });
 
   User.beforeCreate(async (user) => {
@@ -53,21 +52,21 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  User.prototype.comparePassword = function (candidatePassword) {
-    if (this.password) {
-      return bcrypt.compare(candidatePassword, this.password);
+  // Fixed: Make comparePassword async and properly handle the promise
+  User.prototype.comparePassword = async function(candidatePassword) {
+    if (!this.password) return false;
+    try {
+      return await bcrypt.compare(candidatePassword, this.password);
+    } catch (error) {
+      console.error('Password comparison error:', error);
+      return false;
     }
-    return false;
   };
 
-
   User.associate = (models) => {
-    // User has many Charges
     User.hasMany(models.Charge, { foreignKey: 'userId', as: 'charges' });
-    // User belongs to a House
     User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' });
-
-    User.hasMany(models.Task, { foreignKey: 'userId', as: 'tasks' }); 
+    User.hasMany(models.Task, { foreignKey: 'userId', as: 'tasks' });
   };
 
   return User;

@@ -31,7 +31,7 @@ const referrerRoutes = require('./routes/referrerRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const confirmRequestRoutes = require('./routes/confirm-request');
 const paymentMethodRoutes = require('./routes/paymentMethodRoutes');
-
+const authRoutes = require('./routes/authRoutes');
 // Initialize Express app
 const app = express();
 
@@ -121,7 +121,17 @@ app.use('/api/referral-program', referrerRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/confirm-request', confirmRequestRoutes);
+app.use('/api/auth', authRoutes);
 
+// For debugging, add this middleware before your routes
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    body: req.body,
+    query: req.query,
+    params: req.params
+  });
+  next();
+});
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
