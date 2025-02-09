@@ -23,92 +23,68 @@ const validateEmail = (email) => {
 };
 
 const authController = {
-    async login(req, res) {
-        console.log('Login attempt received:', { email: req.body.email });
-        
-        try {
-          const { email, password } = req.body;
-    
-          // Input validation
-          if (!email || !password) {
-            console.log('Login failed: Missing credentials');
-            return res.status(400).json({
-              success: false,
-              message: 'Email and password are required'
-            });
-          }
-    
-          // Find user
-          const user = await User.findOne({ 
-            where: { email },
-            include: [{
-              model: House,
-              as: 'house',
-              attributes: ['id', 'name'],
-              required: false
-            }]
-          });
-    
-          if (!user) {
-            console.log('Login failed: User not found');
-            return res.status(401).json({
-              success: false,
-              message: 'Invalid credentials'
-            });
-          }
-    
-          // Verify password - now properly awaiting the async comparison
-          const isValidPassword = await user.comparePassword(password);
-          console.log('Password validation result:', isValidPassword);
-    
-          if (!isValidPassword) {
-            console.log('Login failed: Invalid password');
-            return res.status(401).json({
-              success: false,
-              message: 'Invalid credentials'
-            });
-          }
-    
-          // Generate token
-          const token = jwt.sign(
-            { 
-              id: user.id,
-              email: user.email,
-              username: user.username 
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-          );
-    
-          console.log('Login successful:', { userId: user.id, email: user.email });
-    
-          // Return success response
-          res.json({
-            success: true,
-            message: 'Login successful',
-            data: {
-              user: {
-                id: user.id,
-                email: user.email,
-                username: user.username,
-                houseId: user.houseId,
-                house: user.house,
-                balance: user.balance,
-                points: user.points,
-                credit: user.credit
-              },
-              token
-            }
-          });
-        } catch (error) {
-          console.error('Login error:', error);
-          res.status(500).json({
-            success: false,
-            message: 'An error occurred during login',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-          });
+   // src/controllers/authController.js
+async login(req, res) {
+  try {
+    const { email, password } = req.body;
+    console.log('Login attempt received:', { email });
+
+    // Find user
+    const user = await User.findOne({ 
+      where: { email },
+      include: [{
+        model: House,
+        as: 'house',
+        required: false
+      }]
+    });
+
+    if (!user) {
+      console.log('User not found');
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Verify password
+    const isValidPassword = await user.comparePassword(password);
+    console.log('Password validation result:', isValidPassword);
+
+    if (!isValidPassword) {
+      console.log('Invalid password');
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Generate token
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Log the response structure
+    const response = {
+      success: true,
+      token,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          houseId: user.houseId,
+          house: user.house,
+          balance: user.balance,
+          points: user.points,
+          credit: user.credit
         }
-      },
+      }
+    };
+    console.log('Sending response:', response);
+
+    res.json(response);
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'An error occurred during login' });
+  }
+},
 
   async register(req, res) {
     console.log('Registration attempt received');

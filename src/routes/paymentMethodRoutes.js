@@ -169,4 +169,8 @@ router.get('/', auth, paymentMethodController.getPaymentMethods);
 router.put('/:id/default', auth, paymentMethodController.setDefaultPaymentMethod);
 router.delete('/:id', auth, paymentMethodController.removePaymentMethod);
 
+// routes/paymentMethods.js
+router.post('/complete', auth, paymentMethodController.completeSetupIntent);
+
+
 module.exports = router;
