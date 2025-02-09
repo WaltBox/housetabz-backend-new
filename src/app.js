@@ -30,6 +30,8 @@ const partnerRoutes = require('./routes/partnerRoutes');
 const referrerRoutes = require('./routes/referrerRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const confirmRequestRoutes = require('./routes/confirm-request');
+const paymentMethodRoutes = require('./routes/paymentMethodRoutes');
+
 // Initialize Express app
 const app = express();
 
@@ -49,7 +51,7 @@ const corsOptions = {
       'http://localhost:3002'
     ];
 
-    // Allow requests with no origin (e.g., Postman or internal tools)
+    // Allow requests with no origin (like Stripe webhooks or Postman)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -64,19 +66,35 @@ const corsOptions = {
     'X-HouseTabz-Secret-Key',
     'Origin', 
     'Accept',
-    'Authorization'
+    'Authorization',
+    'Stripe-Signature'  // Added for Stripe webhook signatures
   ],
   credentials: true
 };
 
+// Apply CORS first
+app.use(cors(corsOptions));
 
-// Apply middleware (order is important)
-app.use(cors(corsOptions));                   // CORS must be first
-app.use(express.json());                      // Parse JSON bodies
-app.use(morgan(':method :url :status :response-time ms - :remote-addr')); // Logging
+// Special handling for Stripe webhook endpoint
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/payments/webhook') {
+    next(); // Let the raw body pass through for Stripe
+  } else {
+    express.json()(req, res, next); // Parse JSON for all other routes
+  }
+});
 
-// Apply rate limiting and path blocking
-app.use(limiter);
+// Logging middleware
+app.use(morgan(':method :url :status :response-time ms - :remote-addr :user-agent')); 
+
+// Apply rate limiting and path blocking (except for Stripe webhooks)
+app.use((req, res, next) => {
+  if (req.originalUrl === '/api/payments/webhook') {
+    next();
+  } else {
+    limiter(req, res, next);
+  }
+});
 app.use(blockPaths);
 
 // Serve static files
@@ -93,7 +111,7 @@ app.use('/api', serviceRequestBundleRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/houses', billRoutes);
 app.use('/api/users', chargeRoutes);
-app.use('/api/house-services', houseServiceRoutes);
+app.use('/api/houseServices', houseServiceRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/waitlist', waitListRoutes);
@@ -101,6 +119,7 @@ app.use('/api/partner-forms', partnerFormRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/referral-program', referrerRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/confirm-request', confirmRequestRoutes);
 
 // Root route
@@ -108,17 +127,57 @@ app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
 });
 
-// Log all registered routes
-app._router.stack.forEach((r) => {
-  if (r.route && r.route.path) {
-    console.log(`Route registered: ${r.route.path}`);
-  }
-});
+// Log all registered routes in development
+if (environment === 'development') {
+  app._router.stack.forEach((r) => {
+    if (r.route && r.route.path) {
+      console.log(`Route registered: ${r.route.path}`);
+    }
+  });
+}
 
-// Error handling middleware
+// Enhanced error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+
+  // Handle Stripe webhook signature verification errors
+  if (err.type === 'StripeSignatureVerificationError') {
+    return res.status(400).json({ 
+      error: 'Invalid Stripe webhook signature',
+      message: err.message
+    });
+  }
+
+  // Handle Stripe API errors
+  if (err.type === 'StripeError') {
+    return res.status(err.statusCode || 400).json({
+      error: 'Stripe API Error',
+      message: err.message,
+      code: err.code
+    });
+  }
+
+  // Handle validation errors
+  if (err.name === 'ValidationError' || err.name === 'SequelizeValidationError') {
+    return res.status(400).json({
+      error: 'Validation Error',
+      message: err.message
+    });
+  }
+
+  // Handle database errors
+  if (err.name === 'SequelizeDatabaseError') {
+    return res.status(500).json({
+      error: 'Database Error',
+      message: environment === 'development' ? err.message : 'An internal server error occurred'
+    });
+  }
+
+  // Default error response
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: environment === 'development' ? err.message : 'Something went wrong!'
+  });
 });
 
 // Sync database and start the server
@@ -126,7 +185,10 @@ app.use((err, req, res, next) => {
   try {
     console.log(`NODE_ENV is set to: ${environment}`);
     console.log(`Connecting to database at: ${config.url}`);
-    console.log(`Using configuration: ${JSON.stringify(config, null, 2)}`);
+    
+    if (environment === 'development') {
+      console.log(`Using configuration: ${JSON.stringify(config, null, 2)}`);
+    }
 
     await sequelize.authenticate();
     console.log('Database connection established successfully!');
@@ -137,6 +199,10 @@ app.use((err, req, res, next) => {
     const port = config.port;
     app.listen(port, () => {
       console.log(`Server running in ${environment} mode on port ${port}`);
+      console.log(`Swagger documentation available at: http://localhost:${port}/api-docs`);
+      if (environment === 'development') {
+        console.log(`Stripe webhook endpoint: http://localhost:${port}/api/payments/webhook`);
+      }
     });
   } catch (error) {
     console.error('Unable to start the server:', error.message);

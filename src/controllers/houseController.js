@@ -1,4 +1,5 @@
-const { House, User, Bill  } = require('../models');
+// src/controllers/houseController.js
+const { House, User, Bill } = require('../models');
 const axios = require('axios'); // Import axios for API requests
 
 // Create a new house and update it with meter_id and utility_id
@@ -62,7 +63,7 @@ exports.getAllHouses = async (req, res, next) => {
   }
 };
 
-// Get house by ID with associated users
+// Get house by ID with associated users and bills
 exports.getHouse = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -78,7 +79,8 @@ exports.getHouse = async (req, res, next) => {
         {
           model: Bill,
           as: 'bills', // Alias defined in the model
-          attributes: ['id', 'name', 'amount', 'paid', 'createdAt', 'updatedAt'], // Include `name`
+          // Replace 'paid' with 'status' since the Bill model uses a status field
+          attributes: ['id', 'name', 'amount', 'status', 'createdAt', 'updatedAt'],
         },
       ],
     });

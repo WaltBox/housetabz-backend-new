@@ -1,75 +1,127 @@
 // src/controllers/paymentController.js
-const { Payment, Task, ServiceRequestBundle } = require('../models');
+const { Payment, Task, User, ServiceRequestBundle } = require('../models');
+const stripeService = require('../services/StripeService');
+const paymentStateService = require('../services/PaymentStateService');
+const { sequelize } = require('../models');
 
 const paymentController = {
   async processPayment(req, res) {
+    const transaction = await sequelize.transaction();
+
     try {
-      console.log('Received payment request:', req.body);
-      const { taskId, userId, amount } = req.body;
-      
-      // Validate request payload
-      const validationError = validatePaymentRequest(taskId, userId, amount);
-      if (validationError) {
-        return res.status(400).json(validationError);
+      const { taskId, paymentMethodId } = req.body;
+      const userId = req.user.id;
+
+      // Validate task and user with detailed includes
+      const task = await Task.findOne({
+        where: { id: taskId },
+        include: [{
+          model: ServiceRequestBundle,
+          as: 'serviceRequestBundle',
+          include: [{
+            model: StagedRequest,
+            as: 'stagedRequest'
+          }]
+        }],
+        transaction
+      });
+
+      if (!task) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'Task not found' });
       }
 
-      // Get and validate task
-      const task = await Task.findByPk(taskId);
-      console.log('Found task:', task); 
+      if (task.userId !== userId) {
+        await transaction.rollback();
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
 
-      const taskError = await validateTask(task, userId, amount);
-      if (taskError) {
-        return res.status(taskError.status).json({ error: taskError.message });
+      // Validate task state
+      if (task.response !== 'accepted') {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'Task must be accepted before payment',
+          currentState: task.response
+        });
       }
 
       // Check for existing payment
       const existingPayment = await Payment.findOne({
         where: {
           taskId,
-          userId,
           status: 'completed'
-        }
+        },
+        transaction
       });
 
       if (existingPayment) {
-        return res.status(400).json({ error: 'Payment already processed for this task' });
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Payment already processed' });
       }
 
-      // Create payment record
+      // Create initial payment record
       const payment = await Payment.create({
         taskId,
         userId,
-        amount: parseFloat(amount).toFixed(2),
-        status: 'completed',
-        paymentDate: new Date(),
-        transactionId: `TEST-${Date.now()}`
-      });
+        amount: task.paymentAmount,
+        status: 'processing',
+        stripePaymentMethodId: paymentMethodId
+      }, { transaction });
 
-      // Update task status and payment info
-      task.paymentStatus = 'completed';
-      task.paymentTransactionId = payment.transactionId;
-      
-      // If task is accepted and payment is completed, set status to true
-      if (task.response === 'accepted') {
-        task.status = true;
+      // Process payment through Stripe
+      try {
+        const paymentIntent = await stripeService.processPayment({
+          amount: task.paymentAmount,
+          userId,
+          paymentMethodId,
+          metadata: {
+            taskId,
+            paymentId: payment.id,
+            serviceRequestBundleId: task.serviceRequestBundle.id
+          }
+        });
+
+        // Update payment record with success
+        await payment.update({
+          stripePaymentIntentId: paymentIntent.id,
+          status: 'completed',
+          paymentDate: new Date()
+        }, { transaction });
+
+        // Update all related states using our service
+        await paymentStateService.handlePaymentCompletion(payment.id);
+
+        // Check if all roommates are ready
+        const roommatestatus = await paymentStateService.checkAllRoommatesReady(
+          task.serviceRequestBundle.id
+        );
+
+        await transaction.commit();
+
+        res.json({
+          message: 'Payment processed successfully',
+          payment,
+          task,
+          roommatestatus
+        });
+      } catch (stripeError) {
+        // Handle Stripe-specific errors
+        await payment.update({
+          status: 'failed',
+          errorMessage: stripeError.message,
+          retryCount: payment.retryCount + 1
+        }, { transaction });
+
+        await transaction.rollback();
+        
+        return res.status(400).json({
+          error: 'Payment processing failed',
+          details: stripeError.message,
+          code: stripeError.code
+        });
       }
-      
-      await task.save();
-
-      console.log('Updated task:', {
-        taskId: task.id,
-        status: task.status,
-        response: task.response,
-        paymentStatus: task.paymentStatus
-      });
-
-      res.status(200).json({
-        message: 'Payment processed successfully',
-        payment,
-        task
-      });
-
     } catch (error) {
+      await transaction.rollback();
       console.error('Error processing payment:', error);
       res.status(500).json({ 
         error: 'Failed to process payment',
@@ -80,13 +132,22 @@ const paymentController = {
 
   async getPaymentStatus(req, res) {
     try {
-      const { taskId } = req.params;
-      
+      const { paymentId } = req.params;
+      const userId = req.user.id;
+
       const payment = await Payment.findOne({
-        where: { taskId },
+        where: { 
+          id: paymentId,
+          userId 
+        },
         include: [{
           model: Task,
-          as: 'task'
+          as: 'task',
+          include: [{
+            model: ServiceRequestBundle,
+            as: 'serviceRequestBundle',
+            include: ['stagedRequest']
+          }]
         }]
       });
 
@@ -94,46 +155,56 @@ const paymentController = {
         return res.status(404).json({ error: 'Payment not found' });
       }
 
-      res.status(200).json({ payment });
+      // Get additional status information if payment is completed
+      let additionalStatus = {};
+      if (payment.status === 'completed' && payment.task?.serviceRequestBundle) {
+        additionalStatus = await paymentStateService.checkAllRoommatesReady(
+          payment.task.serviceRequestBundle.id
+        );
+      }
+
+      res.json({ 
+        payment,
+        bundleStatus: additionalStatus
+      });
     } catch (error) {
-      console.error('Error fetching payment status:', error);
-      res.status(500).json({ error: 'Failed to fetch payment status' });
+      console.error('Error getting payment status:', error);
+      res.status(500).json({ error: 'Failed to get payment status' });
+    }
+  },
+
+  async retryPayment(req, res) {
+    try {
+      const { paymentId } = req.params;
+      const { paymentMethodId } = req.body;
+      const userId = req.user.id;
+
+      const payment = await Payment.findOne({
+        where: { id: paymentId, userId, status: 'failed' }
+      });
+
+      if (!payment) {
+        return res.status(404).json({ error: 'Failed payment not found' });
+      }
+
+      if (payment.retryCount >= 3) {
+        return res.status(400).json({ error: 'Maximum retry attempts reached' });
+      }
+
+      const retriedPayment = await paymentStateService.retryPayment(
+        paymentId,
+        paymentMethodId
+      );
+
+      res.json({
+        message: 'Payment retry initiated',
+        payment: retriedPayment
+      });
+    } catch (error) {
+      console.error('Error retrying payment:', error);
+      res.status(500).json({ error: 'Failed to retry payment' });
     }
   }
 };
-
-// Helper Functions
-function validatePaymentRequest(taskId, userId, amount) {
-  if (!taskId) return { error: 'taskId is required' };
-  if (!userId) return { error: 'userId is required' };
-  if (!amount) return { error: 'amount is required' };
-  if (isNaN(parseFloat(amount))) return { error: 'Invalid amount format' };
-  return null;
-}
-
-async function validateTask(task, userId, amount) {
-  if (!task) {
-    return { status: 404, message: 'Task not found' };
-  }
-
-  if (task.userId !== userId) {
-    return { status: 403, message: 'Task does not belong to this user' };
-  }
-
-  if (!task.paymentRequired) {
-    return { status: 400, message: 'This task does not require payment' };
-  }
-
-  if (parseFloat(task.paymentAmount) !== parseFloat(amount)) {
-    return {
-      status: 400,
-      message: 'Invalid payment amount',
-      expected: parseFloat(task.paymentAmount),
-      received: parseFloat(amount)
-    };
-  }
-
-  return null;
-}
 
 module.exports = paymentController;

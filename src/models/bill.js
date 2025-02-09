@@ -1,33 +1,58 @@
+// src/models/Bill.js
 module.exports = (sequelize, DataTypes) => {
   const Bill = sequelize.define('Bill', {
     amount: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-    paid: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false, // unpaid by default
-    },
-    houseService_id: { // Add houseService_id as a foreign key
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false
     },
     name: {
       type: DataTypes.STRING,
-      allowNull: false, // Set to false if the field is required
+      allowNull: false
     },
+    houseService_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    status: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'pending',
+      validate: {
+        isIn: [['pending', 'partial_paid', 'paid']]
+      }
+    },
+    stripePaymentIntentId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true
+    },
+    dueDate: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    metadata: {
+      type: DataTypes.JSONB,
+      defaultValue: {}
+    }
   });
 
   Bill.associate = (models) => {
-    // Bill belongs to House
-    Bill.belongsTo(models.House, { foreignKey: 'houseId' });
+    Bill.belongsTo(models.House, { 
+      foreignKey: 'houseId',
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL'
+    });
 
-    // Bill belongs to HouseService
-    Bill.belongsTo(models.HouseService, { foreignKey: 'houseService_id', as: 'houseService' });
+    Bill.belongsTo(models.HouseService, { 
+      foreignKey: 'houseService_id',
+      as: 'houseService',
+      onUpdate: 'CASCADE',
+      onDelete: 'NO ACTION'
+    });
 
-    // Bill has many Charges
-    Bill.hasMany(models.Charge, { foreignKey: 'billId' });
+    Bill.hasMany(models.Charge, { 
+      foreignKey: 'billId'
+    });
   };
 
   return Bill;

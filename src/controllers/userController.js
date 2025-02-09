@@ -1,21 +1,22 @@
-const { User, House, Charge, Task} = require('../models');
+// src/controllers/userController.js
+const { User, House, Charge, Task } = require('../models');
 
 // Create a new user
 exports.createUser = async (req, res, next) => {
-    try {
-      const { username, email } = req.body;
-      const user = await User.create({ username, email });
-      res.status(201).json({
-        message: 'User created successfully',
-        user: { id: user.id, username: user.username, email: user.email }
-      });
-    } catch (error) {
-      if (error.name === 'SequelizeUniqueConstraintError') {
-        return res.status(400).json({ message: 'Username or email already exists' });
-      }
-      next(error);
+  try {
+    const { username, email } = req.body;
+    const user = await User.create({ username, email });
+    res.status(201).json({
+      message: 'User created successfully',
+      user: { id: user.id, username: user.username, email: user.email }
+    });
+  } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ message: 'Username or email already exists' });
     }
-  };
+    next(error);
+  }
+};
 
 // Get all users
 exports.getAllUsers = async (req, res, next) => {
@@ -29,9 +30,7 @@ exports.getAllUsers = async (req, res, next) => {
   }
 };
 
-// Get a single user with house details
-// controllers/userController.js
-
+// Get a single user with house, charge, and task details
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
@@ -39,26 +38,27 @@ exports.getUser = async (req, res, next) => {
       include: [
         {
           model: House,
-          as: 'house', // Alias must match the User -> House association
-          attributes: ['id', 'name'],
+          as: 'house', // Ensure this alias matches your association definition
+          attributes: ['id', 'name']
         },
         {
           model: Charge,
-          as: 'charges', // Alias must match the User -> Charge association
-          attributes: ['id', 'amount', 'paid', 'billId', 'name'], // Include `name` field
+          as: 'charges', // Ensure this alias matches your association definition
+          // Replace "paid" with "status" since the Charge model uses the "status" field.
+          attributes: ['id', 'amount', 'status', 'billId', 'name'],
           include: [
             {
               model: require('../models').Bill, // Include the associated Bill
-              attributes: ['id', 'name'], // Include the Bill `name`
-            },
-          ],
+              attributes: ['id', 'name']
+            }
+          ]
         },
         {
           model: Task, // Include tasks associated with the user
           as: 'tasks',
-          attributes: ['id', 'type', 'status', 'response', 'createdAt', 'updatedAt'],
-        },
-      ],
+          attributes: ['id', 'type', 'status', 'response', 'createdAt', 'updatedAt']
+        }
+      ]
     });
 
     if (!user) {
@@ -72,29 +72,24 @@ exports.getUser = async (req, res, next) => {
   }
 };
 
-
-
+// Update a user
 exports.updateUser = async (req, res, next) => {
-    try {
-      console.log('Request Body:', req.body); // Log the request data
-  
-      const { username, email, houseId } = req.body;
-  
-      const user = await User.findByPk(req.params.id);
-      if (!user) {
-        return res.status(404).json({ message: 'User not found' });
-      }
-  
-      await user.update({ username, email, houseId });
-      res.json({
-        message: 'User updated successfully',
-        user: { id: user.id, username: user.username, email: user.email, houseId: user.houseId }
-      });
-    } catch (error) {
-      next(error);
+  try {
+    console.log('Request Body:', req.body);
+    const { username, email, houseId } = req.body;
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
-  };
-  
+    await user.update({ username, email, houseId });
+    res.json({
+      message: 'User updated successfully',
+      user: { id: user.id, username: user.username, email: user.email, houseId: user.houseId }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // Delete a user
 exports.deleteUser = async (req, res, next) => {
@@ -112,22 +107,16 @@ exports.deleteUser = async (req, res, next) => {
 
 // Update user's houseId
 exports.updateUserHouse = async (req, res) => {
-  const { id } = req.params; // Get the user ID from URL params
-  const { houseId } = req.body; // Get the houseId from the request body
+  const { id } = req.params;
+  const { houseId } = req.body;
 
   try {
-    // Find the user by their ID
-    const user = await User.findByPk(id);  // Sequelize method to find user
-
+    const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-
-    // Update the user's houseId
     user.houseId = houseId;
-    await user.save();  // Save the updated user
-
-    // Respond with success message and updated user
+    await user.save();
     res.status(200).json({ message: 'User houseId updated', user });
   } catch (error) {
     console.error('Error updating houseId:', error);

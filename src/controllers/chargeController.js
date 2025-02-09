@@ -6,7 +6,7 @@ exports.getChargeById = async (req, res, next) => {
     const { id } = req.params;
 
     const charge = await Charge.findByPk(id, {
-      attributes: ['id', 'amount', 'paid', 'name'], // Include `name`
+      attributes: ['id', 'amount', 'name'], // Include `name`
       include: {
         model: Bill,
         attributes: ['id', 'name'], // Include the associated bill's name
@@ -36,7 +36,7 @@ exports.getChargesForUser = async (req, res, next) => {
 
     const charges = await Charge.findAll({
       where: { userId },
-      attributes: ['id', 'amount', 'paid', 'name'], // Include `name`
+      attributes: ['id', 'amount', 'name'], // Include `name`
       include: {
         model: Bill,
         attributes: ['id', 'name'], // Include the associated bill's name

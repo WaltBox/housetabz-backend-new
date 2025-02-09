@@ -1,5 +1,5 @@
+// src/controllers/billController.js
 const { Bill, Charge, User, House, HouseService, Notification } = require('../models');
-
 
 // Create a new bill and distribute charges
 exports.createBill = async (req, res, next) => {
@@ -18,13 +18,14 @@ exports.createBill = async (req, res, next) => {
       return res.status(404).json({ error: 'HouseService not found' });
     }
 
-    // Create the bill for the house and associated house service
+    // Create the bill for the house and associated house service.
+    // Instead of using a "paid" field, set "status" to "pending".
     const bill = await Bill.create({
       houseId,
       amount,
       houseService_id: houseServiceId,
-      name: houseService.name, // Assign the name of the HouseService to the bill
-      paid: false, // Default unpaid status
+      name: houseService.name, // Use the HouseService name
+      status: 'pending', // Set the default status
     });
 
     // Distribute the charges to each roommate
@@ -32,11 +33,11 @@ exports.createBill = async (req, res, next) => {
     const numberOfUsers = users.length;
     const chargeAmount = amount / numberOfUsers;
 
-    // Create charges for each user
+    // Create charges for each user – using "status" with a default of "pending"
     const charges = users.map((user) => ({
       userId: user.id,
       amount: chargeAmount,
-      paid: false,
+      status: 'pending', // Use the status field here as well
       billId: bill.id,
       name: bill.name, // Assign the bill name to the charge
     }));
@@ -56,7 +57,7 @@ exports.createBill = async (req, res, next) => {
     // Update each user's balance
     for (const user of users) {
       user.balance += chargeAmount;
-      await user.save(); // Save the updated balance to the database
+      await user.save();
     }
 
     // Update the house's balance by adding the bill amount
@@ -74,7 +75,6 @@ exports.createBill = async (req, res, next) => {
   }
 };
 
-
 // Get all bills for a specific house
 exports.getBillsForHouse = async (req, res, next) => {
   try {
@@ -87,15 +87,16 @@ exports.getBillsForHouse = async (req, res, next) => {
 
     const bills = await Bill.findAll({
       where: { houseId },
-      attributes: ['id', 'name', 'amount', 'paid'], // Include the `name` field
+      // Replace "paid" with "status" here
+      attributes: ['id', 'name', 'amount', 'status'],
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'paid', 'name', 'userId'], // Include `name` for charges
+          attributes: ['id', 'amount', 'status', 'name', 'userId'], // Use "status" for charges as well
           include: [
             {
               model: User,
-              attributes: ['id', 'username'], // Include the user details
+              attributes: ['id', 'username'],
             },
           ],
         },
@@ -121,15 +122,16 @@ exports.getBillForHouse = async (req, res, next) => {
 
     const bill = await Bill.findOne({
       where: { id: billId, houseId },
-      attributes: ['id', 'name', 'amount', 'paid'], // Include the `name` field
+      // Replace "paid" with "status" here as well
+      attributes: ['id', 'name', 'amount', 'status'],
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'paid', 'name', 'userId'], // Include `name` for charges
+          attributes: ['id', 'amount', 'status', 'name', 'userId'], // Use "status" for charges
           include: [
             {
               model: User,
-              attributes: ['id', 'username'], // Include the user details
+              attributes: ['id', 'username'],
             },
           ],
         },
