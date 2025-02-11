@@ -115,43 +115,37 @@ class StripeService {
 
   async addPaymentMethod(userId, paymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
-
+  
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);
-
+  
+      // Check if this will be the first payment method BEFORE creating
+      const existingMethods = await PaymentMethod.count({
+        where: { userId }
+      });
+  
       // Attach payment method to customer in Stripe
       const paymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
         customer: stripeCustomer.stripeCustomerId
       });
-
-      // Get payment method details
+  
       const { card } = paymentMethod;
-
-      // Save payment method in database
+  
+      // Save payment method - isDefault is true if no existing methods
       const savedPaymentMethod = await PaymentMethod.create({
         userId,
-        stripeCustomerId: stripeCustomer.id, // Add this
+        stripeCustomerId: stripeCustomer.id,
         stripePaymentMethodId: paymentMethod.id,
         type: paymentMethod.type,
         last4: card.last4,
         brand: card.brand,
-        isDefault: false
+        isDefault: existingMethods === 0  // Set default if it's the first one
       }, { transaction });
-
-      // If this is the first payment method, make it default
-      const existingMethods = await PaymentMethod.count({
-        where: { userId }
-      });
-
-      if (existingMethods === 1) {
-        await this.setDefaultPaymentMethod(userId, savedPaymentMethod.id, transaction);
-      }
-
+  
       await transaction.commit();
       return savedPaymentMethod;
     } catch (error) {
       await transaction.rollback();
-      console.error('Error in addPaymentMethod:', error);
       throw error;
     }
   }
@@ -243,32 +237,28 @@ class StripeService {
   async createPaymentMethodFromSetupIntent(userId, stripePaymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
     try {
-      // No need to attach again since the PaymentMethod is already attached via PaymentSheet
+      // Check for existing methods FIRST
+      const existingMethods = await PaymentMethod.count({
+        where: { userId }
+      });
+  
       const paymentMethod = await stripe.paymentMethods.retrieve(stripePaymentMethodId);
       const { card } = paymentMethod;
-
-      // Save payment method in database
+  
+      // Create with isDefault based on existingMethods count
       const savedPaymentMethod = await PaymentMethod.create({
         userId,
         stripePaymentMethodId: paymentMethod.id,
         type: paymentMethod.type,
         last4: card.last4,
         brand: card.brand,
-        isDefault: false
+        isDefault: existingMethods === 0  // Set default if it's the first one
       }, { transaction });
-
-      // If this is the first payment method, make it default
-      const existingMethods = await PaymentMethod.count({
-        where: { userId }
-      });
-      if (existingMethods === 1) {
-        await this.setDefaultPaymentMethod(userId, savedPaymentMethod.id, transaction);
-      }
+  
       await transaction.commit();
       return savedPaymentMethod;
     } catch (error) {
       await transaction.rollback();
-      console.error('Error creating payment method from setup intent:', error);
       throw error;
     }
   }
