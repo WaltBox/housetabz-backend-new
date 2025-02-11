@@ -41,6 +41,43 @@ class StripeService {
     }
   }
 
+  async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
+    try {
+      const stripeCustomer = await this.getOrCreateCustomer(userId);
+  
+      // Get the payment method to ensure it exists and belongs to user
+      const paymentMethod = await PaymentMethod.findOne({
+        where: { 
+          userId,
+          stripePaymentMethodId: paymentMethodId
+        }
+      });
+  
+      if (!paymentMethod) {
+        throw new Error('Payment method not found or unauthorized');
+      }
+  
+      // Create payment intent with idempotency
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: 'usd',
+        customer: stripeCustomer.stripeCustomerId,
+        payment_method: paymentMethodId,
+        confirm: true, // Automatically confirm the payment
+        metadata,
+        off_session: true, // Since we're charging a saved payment method
+        error_on_requires_action: true // Decline if requires authentication
+      }, {
+        idempotencyKey // Stripe's idempotency key
+      });
+  
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      throw error;
+    }
+  }
+
   async createSetupIntent(userId) {
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);
@@ -93,6 +130,7 @@ class StripeService {
       // Save payment method in database
       const savedPaymentMethod = await PaymentMethod.create({
         userId,
+        stripeCustomerId: stripeCustomer.id, // Add this
         stripePaymentMethodId: paymentMethod.id,
         type: paymentMethod.type,
         last4: card.last4,

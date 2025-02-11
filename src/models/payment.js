@@ -55,6 +55,12 @@ module.exports = (sequelize, DataTypes) => {
     paymentDate: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    idempotencyKey: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      field: 'idempotency_key'
     }
   }, {
     indexes: [

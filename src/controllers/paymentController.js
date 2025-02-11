@@ -1,8 +1,11 @@
 // src/controllers/paymentController.js
-const { Payment, Task, User, ServiceRequestBundle } = require('../models');
+const { Payment, Task, User, ServiceRequestBundle, StagedRequest } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
 const { sequelize } = require('../models');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('payment-controller');
 
 const paymentController = {
   async processPayment(req, res) {
@@ -10,7 +13,44 @@ const paymentController = {
 
     try {
       const { taskId, paymentMethodId } = req.body;
+      const idempotencyKey = req.headers['idempotency-key'];
       const userId = req.user.id;
+
+      // Validate idempotency key
+      if (!idempotencyKey) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'Missing idempotency key',
+          code: 'MISSING_IDEMPOTENCY_KEY'
+        });
+      }
+
+      // Check for existing payment with this idempotency key
+      const existingIdempotentPayment = await Payment.findOne({
+        where: { idempotencyKey },
+        include: [{
+          model: Task,
+          as: 'task',
+          include: [{
+            model: ServiceRequestBundle,
+            as: 'serviceRequestBundle',
+            include: ['stagedRequest']
+          }]
+        }],
+        transaction
+      });
+
+      if (existingIdempotentPayment) {
+        await transaction.rollback();
+        return res.json({
+          message: 'Payment request already processed',
+          payment: existingIdempotentPayment,
+          task: existingIdempotentPayment.task,
+          roommatestatus: await paymentStateService.checkAllRoommatesReady(
+            existingIdempotentPayment.task.serviceRequestBundle.id
+          )
+        });
+      }
 
       // Validate task and user with detailed includes
       const task = await Task.findOne({
@@ -65,7 +105,8 @@ const paymentController = {
         userId,
         amount: task.paymentAmount,
         status: 'processing',
-        stripePaymentMethodId: paymentMethodId
+        stripePaymentMethodId: paymentMethodId,
+        idempotencyKey
       }, { transaction });
 
       // Process payment through Stripe
@@ -79,7 +120,7 @@ const paymentController = {
             paymentId: payment.id,
             serviceRequestBundleId: task.serviceRequestBundle.id
           }
-        });
+        }, idempotencyKey);
 
         // Update payment record with success
         await payment.update({
@@ -122,7 +163,7 @@ const paymentController = {
       }
     } catch (error) {
       await transaction.rollback();
-      console.error('Error processing payment:', error);
+      logger.error('Error processing payment:', error);
       res.status(500).json({ 
         error: 'Failed to process payment',
         details: error.message 
@@ -168,7 +209,7 @@ const paymentController = {
         bundleStatus: additionalStatus
       });
     } catch (error) {
-      console.error('Error getting payment status:', error);
+      logger.error('Error getting payment status:', error);
       res.status(500).json({ error: 'Failed to get payment status' });
     }
   },
@@ -177,7 +218,15 @@ const paymentController = {
     try {
       const { paymentId } = req.params;
       const { paymentMethodId } = req.body;
+      const idempotencyKey = req.headers['idempotency-key'];
       const userId = req.user.id;
+
+      if (!idempotencyKey) {
+        return res.status(400).json({ 
+          error: 'Missing idempotency key',
+          code: 'MISSING_IDEMPOTENCY_KEY'
+        });
+      }
 
       const payment = await Payment.findOne({
         where: { id: paymentId, userId, status: 'failed' }
@@ -193,7 +242,8 @@ const paymentController = {
 
       const retriedPayment = await paymentStateService.retryPayment(
         paymentId,
-        paymentMethodId
+        paymentMethodId,
+        idempotencyKey
       );
 
       res.json({
@@ -201,7 +251,7 @@ const paymentController = {
         payment: retriedPayment
       });
     } catch (error) {
-      console.error('Error retrying payment:', error);
+      logger.error('Error retrying payment:', error);
       res.status(500).json({ error: 'Failed to retry payment' });
     }
   }

@@ -8,8 +8,19 @@
     "start:dev": "NODE_ENV=development node src/app.js",
     "start:local": "NODE_ENV=development_local node src/app.js",
     "start:prod": "NODE_ENV=production node src/app.js",
-    "test": "NODE_ENV=test jest"
+    "test": "NODE_ENV=development_local jest",
+    "test:watch": "NODE_ENV=development_local jest --watch",
+    "test:integration": "NODE_ENV=development_local jest src/tests/integration",
+    "test:unit": "NODE_ENV=development_local jest src/tests/unit"
   },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["<rootDir>/src/tests/testSetup.js"],
+    "testMatch": ["**/src/tests/**/*.test.js"],
+    "verbose": true,
+    "testTimeout": 10000
+  },
+
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -27,7 +38,6 @@
     "express-jwt": "^8.4.1",
     "express-rate-limit": "^7.5.0",
     "express-validator": "^7.2.0",
-    "jest": "^29.7.0",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.1.0",
@@ -37,8 +47,11 @@
     "pg": "^8.13.1",
     "sequelize": "^6.37.4",
     "stripe": "^17.6.0",
-    "supertest": "^7.0.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
   }
 }

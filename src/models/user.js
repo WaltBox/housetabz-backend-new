@@ -67,6 +67,8 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.Charge, { foreignKey: 'userId', as: 'charges' });
     User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' });
     User.hasMany(models.Task, { foreignKey: 'userId', as: 'tasks' });
+    
+    User.hasOne(models.StripeCustomer, { foreignKey: 'userId', as: 'stripeCustomer' });
   };
 
   return User;
