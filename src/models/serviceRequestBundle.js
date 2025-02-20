@@ -33,6 +33,14 @@ module.exports = (sequelize, DataTypes) => {
         key: 'id'
       }
     },
+    takeOverRequestId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'TakeOverRequests',
+        key: 'id'
+      }
+    },
     status: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -70,6 +78,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'virtualCardRequestId',
       as: 'virtualCardRequest'
     });
+    ServiceRequestBundle.belongsTo(models.TakeOverRequest, {
+      foreignKey: 'takeOverRequestId',
+      as: 'takeOverRequest'
+    });
     ServiceRequestBundle.hasMany(models.Task, {
       foreignKey: 'serviceRequestBundleId',
       as: 'tasks'
@@ -83,18 +95,19 @@ module.exports = (sequelize, DataTypes) => {
   ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function(options = {}) {
     const transaction = options.transaction;
     try {
-      // Get all tasks and either staged request or virtual card request
-      const [tasks, stagedRequest, virtualCardRequest] = await Promise.all([
+      // Get all tasks and relevant request type
+      const [tasks, stagedRequest, virtualCardRequest, takeOverRequest] = await Promise.all([
         sequelize.models.Task.findAll({
           where: { serviceRequestBundleId: this.id },
           transaction
         }),
         this.stagedRequestId ? sequelize.models.StagedRequest.findByPk(this.stagedRequestId, { transaction }) : null,
-        this.virtualCardRequestId ? sequelize.models.VirtualCardRequest.findByPk(this.virtualCardRequestId, { transaction }) : null
+        this.virtualCardRequestId ? sequelize.models.VirtualCardRequest.findByPk(this.virtualCardRequestId, { transaction }) : null,
+        this.takeOverRequestId ? sequelize.models.TakeOverRequest.findByPk(this.takeOverRequestId, { transaction }) : null
       ]);
 
-      // Get the relevant request (either staged or virtual card)
-      const request = stagedRequest || virtualCardRequest;
+      // Get the relevant request (either staged, virtual card, or take over)
+      const request = stagedRequest || virtualCardRequest || takeOverRequest;
       if (!request) return;
 
       // Calculate total paid based on tasks with completed payments
@@ -116,7 +129,7 @@ module.exports = (sequelize, DataTypes) => {
         allTasksAccepted,
         allPaymentsMet,
         taskCount: tasks.length,
-        requestType: stagedRequest ? 'staged' : 'virtual_card'
+        requestType: stagedRequest ? 'staged' : virtualCardRequest ? 'virtual_card' : 'take_over'
       });
 
       // Update the totalPaidUpfront if there is a discrepancy
@@ -165,6 +178,9 @@ module.exports = (sequelize, DataTypes) => {
             console.error('Error creating virtual card:', error);
             throw error;
           }
+        } else if (takeOverRequest) {
+          // For take over requests, just update the status
+          updates.push(takeOverRequest.update({ status: 'active' }, { transaction }));
         }
 
         await Promise.all(updates);
