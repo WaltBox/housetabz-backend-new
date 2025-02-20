@@ -32,6 +32,7 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const confirmRequestRoutes = require('./routes/confirm-request');
 const paymentMethodRoutes = require('./routes/paymentMethodRoutes');
 const authRoutes = require('./routes/authRoutes');
+const virtualCardRequestRoutes = require('./routes/virtualCardRequestRoutes');
 // Initialize Express app
 const app = express();
 
@@ -122,6 +123,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/payment-methods', paymentMethodRoutes);
 app.use('/confirm-request', confirmRequestRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/virtual-card-requests', virtualCardRequestRoutes);
 
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {

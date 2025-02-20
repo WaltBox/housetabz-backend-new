@@ -19,9 +19,18 @@ module.exports = (sequelize, DataTypes) => {
     },
     stagedRequestId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      validate: {
-        notNull: { msg: 'Staged Request ID is required' }
+      allowNull: true,
+      references: {
+        model: 'StagedRequests',
+        key: 'id'
+      }
+    },
+    virtualCardRequestId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'VirtualCardRequests',
+        key: 'id'
       }
     },
     status: {
@@ -57,6 +66,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'stagedRequestId',
       as: 'stagedRequest'
     });
+    ServiceRequestBundle.belongsTo(models.VirtualCardRequest, {
+      foreignKey: 'virtualCardRequestId',
+      as: 'virtualCardRequest'
+    });
     ServiceRequestBundle.hasMany(models.Task, {
       foreignKey: 'serviceRequestBundleId',
       as: 'tasks'
@@ -70,16 +83,19 @@ module.exports = (sequelize, DataTypes) => {
   ServiceRequestBundle.prototype.updateStatusIfAllTasksCompleted = async function(options = {}) {
     const transaction = options.transaction;
     try {
-      // Get all tasks and the staged request within the same transaction context
-      const [tasks, stagedRequest] = await Promise.all([
+      // Get all tasks and either staged request or virtual card request
+      const [tasks, stagedRequest, virtualCardRequest] = await Promise.all([
         sequelize.models.Task.findAll({
           where: { serviceRequestBundleId: this.id },
           transaction
         }),
-        sequelize.models.StagedRequest.findByPk(this.stagedRequestId, { transaction })
+        this.stagedRequestId ? sequelize.models.StagedRequest.findByPk(this.stagedRequestId, { transaction }) : null,
+        this.virtualCardRequestId ? sequelize.models.VirtualCardRequest.findByPk(this.virtualCardRequestId, { transaction }) : null
       ]);
 
-      if (!stagedRequest) return;
+      // Get the relevant request (either staged or virtual card)
+      const request = stagedRequest || virtualCardRequest;
+      if (!request) return;
 
       // Calculate total paid based on tasks with completed payments
       const totalPaid = tasks
@@ -89,7 +105,7 @@ module.exports = (sequelize, DataTypes) => {
       // Check conditions: all tasks are complete, accepted, and required payments are met
       const allTasksComplete = tasks.every(task => task.status === true);
       const allTasksAccepted = tasks.every(task => task.response === 'accepted');
-      const requiredPayment = Number(stagedRequest.requiredUpfrontPayment || 0);
+      const requiredPayment = Number(request.requiredUpfrontPayment || 0);
       const allPaymentsMet = totalPaid >= requiredPayment;
 
       console.log('Status check:', {
@@ -99,7 +115,8 @@ module.exports = (sequelize, DataTypes) => {
         allTasksComplete,
         allTasksAccepted,
         allPaymentsMet,
-        taskCount: tasks.length
+        taskCount: tasks.length,
+        requestType: stagedRequest ? 'staged' : 'virtual_card'
       });
 
       // Update the totalPaidUpfront if there is a discrepancy
@@ -108,30 +125,49 @@ module.exports = (sequelize, DataTypes) => {
       }
 
       // If every task is complete, accepted, and payments meet the required amount,
-      // update the bundle and the related staged request, then send the webhook.
+      // update the bundle and the related request
       if (allTasksComplete && allTasksAccepted && allPaymentsMet) {
-        await Promise.all([
-          this.update({ status: 'accepted' }, { transaction }),
-          stagedRequest.update({ status: 'authorized' }, { transaction })
-        ]);
+        const updates = [
+          this.update({ status: 'accepted' }, { transaction })
+        ];
 
-        try {
-          await webhookService.sendWebhook(
-            stagedRequest.partnerId,
-            'request.authorized',
-            {
-              stagedRequestId: stagedRequest.id,
-              status: 'authorized',
-              transactionId: stagedRequest.transactionId,
-              serviceName: stagedRequest.serviceName,
-              serviceType: stagedRequest.serviceType,
-              estimatedAmount: stagedRequest.estimatedAmount,
-              requiredUpfrontPayment: stagedRequest.requiredUpfrontPayment
-            }
-          );
-        } catch (error) {
-          console.error('Webhook error:', error);
+        if (stagedRequest) {
+          // For staged requests, update status and send webhook
+          updates.push(stagedRequest.update({ status: 'authorized' }, { transaction }));
+          
+          try {
+            await webhookService.sendWebhook(
+              stagedRequest.partnerId,
+              'request.authorized',
+              {
+                stagedRequestId: stagedRequest.id,
+                status: 'authorized',
+                transactionId: stagedRequest.transactionId,
+                serviceName: stagedRequest.serviceName,
+                serviceType: stagedRequest.serviceType,
+                estimatedAmount: stagedRequest.estimatedAmount,
+                requiredUpfrontPayment: stagedRequest.requiredUpfrontPayment
+              }
+            );
+          } catch (error) {
+            console.error('Webhook error:', error);
+          }
+        } else if (virtualCardRequest) {
+          // For virtual card requests, update status and create card
+          try {
+            const stripeHouseService = require('../services/StripeHouseService');
+            updates.push(virtualCardRequest.update({ status: 'active' }, { transaction }));
+            
+            // Create the virtual card
+            const card = await stripeHouseService.createVirtualCard(virtualCardRequest.id);
+            console.log('Virtual card created:', card);
+          } catch (error) {
+            console.error('Error creating virtual card:', error);
+            throw error;
+          }
         }
+
+        await Promise.all(updates);
       }
     } catch (error) {
       console.error('Error updating bundle status:', error);

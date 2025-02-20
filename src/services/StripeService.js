@@ -222,7 +222,6 @@ class StripeService {
     }
   }
 
-  // NEW METHOD: Retrieve a SetupIntent by ID
   async retrieveSetupIntent(setupIntentId) {
     try {
       const setupIntent = await stripe.setupIntents.retrieve(setupIntentId);
@@ -233,7 +232,6 @@ class StripeService {
     }
   }
 
-  // NEW METHOD: Create a PaymentMethod record from an already attached PaymentMethod
   async createPaymentMethodFromSetupIntent(userId, stripePaymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
     try {

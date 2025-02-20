@@ -108,13 +108,29 @@ module.exports = (sequelize, DataTypes) => {
 
       // If the task's status or response has changed, check if the bundle should update.
       if (task.changed('status') || task.changed('response')) {
-        const bundle = await task.getServiceRequestBundle({ transaction });
+        const bundle = await task.getServiceRequestBundle({
+          transaction,
+          include: [
+            {
+              model: sequelize.models.StagedRequest,
+              as: 'stagedRequest'
+            },
+            {
+              model: sequelize.models.VirtualCardRequest,
+              as: 'virtualCardRequest'
+            }
+          ]
+        });
+
         if (bundle) {
           if (task.response === 'rejected') {
             await bundle.update({ status: 'rejected' }, { transaction });
-            const stagedRequest = await bundle.getStagedRequest({ transaction });
-            if (stagedRequest) {
-              await stagedRequest.update({ status: 'rejected' }, { transaction });
+            
+            if (bundle.stagedRequest) {
+              await bundle.stagedRequest.update({ status: 'rejected' }, { transaction });
+            }
+            if (bundle.virtualCardRequest) {
+              await bundle.virtualCardRequest.update({ status: 'rejected' }, { transaction });
             }
           } else if (task.status === true) {
             await bundle.updateStatusIfAllTasksCompleted({ transaction });
