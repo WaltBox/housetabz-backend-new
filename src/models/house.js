@@ -76,9 +76,16 @@ module.exports = (sequelize) => {
         defaultValue: 0,
       },
       balance: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
-        defaultValue: 0,
+        defaultValue: 0.00,
+        get() {
+          const value = this.getDataValue('balance');
+          return value === null ? 0.00 : Number(value);
+        },
+        set(value) {
+          this.setDataValue('balance', parseFloat(value || 0).toFixed(2));
+        }
       },
       ledger: {
         type: DataTypes.INTEGER,

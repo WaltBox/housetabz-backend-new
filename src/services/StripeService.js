@@ -41,43 +41,60 @@ class StripeService {
     }
   }
 
-  async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
-    try {
-      const stripeCustomer = await this.getOrCreateCustomer(userId);
-  
-      // Get the payment method to ensure it exists and belongs to user
-      const paymentMethod = await PaymentMethod.findOne({
+  // Fix for the type mismatch in StripeService.js processPayment method
+// Updated processPayment method for StripeService.js
+// Final updated processPayment method for StripeService.js
+async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
+  try {
+    const stripeCustomer = await this.getOrCreateCustomer(userId);
+
+    // Convert paymentMethodId to string if it's not already
+    const stripePaymentMethodId = String(paymentMethodId);
+    
+    // Find the payment method in our database
+    let selectedPaymentMethod;
+    
+    // If it looks like a Stripe payment method ID (pm_*), use it directly
+    if (stripePaymentMethodId.startsWith('pm_')) {
+      selectedPaymentMethod = stripePaymentMethodId;
+    } else {
+      // Otherwise, find it in our database
+      const dbPaymentMethod = await PaymentMethod.findOne({
         where: { 
           userId,
-          stripePaymentMethodId: paymentMethodId
+          id: parseInt(stripePaymentMethodId, 10)
         }
       });
-  
-      if (!paymentMethod) {
+      
+      if (!dbPaymentMethod) {
         throw new Error('Payment method not found or unauthorized');
       }
-  
-      // Create payment intent with idempotency
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: 'usd',
-        customer: stripeCustomer.stripeCustomerId,
-        payment_method: paymentMethodId,
-        confirm: true, // Automatically confirm the payment
-        metadata,
-        off_session: true, // Since we're charging a saved payment method
-        error_on_requires_action: true // Decline if requires authentication
-      }, {
-        idempotencyKey // Stripe's idempotency key
-      });
-  
-      return paymentIntent;
-    } catch (error) {
-      console.error('Error processing payment:', error);
-      throw error;
+      
+      selectedPaymentMethod = dbPaymentMethod.stripePaymentMethodId;
     }
-  }
 
+    // Create payment intent with idempotency
+    // Note: Removed error_on_requires_action parameter
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: 'usd',
+      customer: stripeCustomer.stripeCustomerId,
+      payment_method: selectedPaymentMethod,
+      confirm: true, // Automatically confirm the payment
+      metadata,
+      off_session: true, // Since we're charging a saved payment method
+      // REMOVED: error_on_requires_action: true
+      payment_method_types: ['card'] // Added to specify payment method types
+    }, {
+      idempotencyKey // Stripe's idempotency key
+    });
+
+    return paymentIntent;
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    throw error;
+  }
+}
   async createSetupIntent(userId) {
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);

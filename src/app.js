@@ -34,6 +34,7 @@ const paymentMethodRoutes = require('./routes/paymentMethodRoutes');
 const authRoutes = require('./routes/authRoutes');
 const virtualCardRequestRoutes = require('./routes/virtualCardRequestRoutes');
 const takeOverRequestRoutes = require('./routes/takeOverRequestRoutes');
+
 // Initialize Express app
 const app = express();
 
@@ -126,6 +127,7 @@ app.use('/confirm-request', confirmRequestRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/virtual-card-requests', virtualCardRequestRoutes);
 app.use('/api/take-over-requests', takeOverRequestRoutes);
+
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {
@@ -208,6 +210,10 @@ app.use((err, req, res, next) => {
 
     await sequelize.sync({ alter: true });
     console.log('Database synced');
+
+    const { startBillSchedulers } = require('./utils/billScheduler');
+    startBillSchedulers();
+    console.log('Bill schedulers started');
 
     const port = config.port;
     app.listen(port, () => {

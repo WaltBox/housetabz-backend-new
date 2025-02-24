@@ -1,73 +1,76 @@
 // src/controllers/billController.js
 const { Bill, Charge, User, House, HouseService, Notification } = require('../models');
+const billService = require('../services/billService');
+const { Op } = require('sequelize');
 
-// Create a new bill and distribute charges
 exports.createBill = async (req, res, next) => {
   try {
     const { houseId } = req.params;
-    const { amount, houseServiceId } = req.body;
+    const { amount, houseServiceId, billType, dueDate } = req.body;
 
-    // Validate that houseServiceId is provided
     if (!houseServiceId) {
       return res.status(400).json({ error: 'houseServiceId is required' });
     }
 
-    // Find the HouseService to get the name
     const houseService = await HouseService.findByPk(houseServiceId);
     if (!houseService) {
       return res.status(404).json({ error: 'HouseService not found' });
     }
 
-    // Create the bill for the house and associated house service.
-    // Instead of using a "paid" field, set "status" to "pending".
     const bill = await Bill.create({
       houseId,
-      amount,
+      amount: parseFloat(amount),
       houseService_id: houseServiceId,
-      name: houseService.name, // Use the HouseService name
-      status: 'pending', // Set the default status
+      name: houseService.name,
+      status: 'pending',
+      billType: billType || 'regular',
+      dueDate: dueDate ? new Date(dueDate) : null
     });
 
-    // Distribute the charges to each roommate
     const users = await User.findAll({ where: { houseId } });
     const numberOfUsers = users.length;
-    const chargeAmount = amount / numberOfUsers;
+    const chargeAmount = parseFloat(amount) / numberOfUsers;
 
-    // Create charges for each user – using "status" with a default of "pending"
     const charges = users.map((user) => ({
       userId: user.id,
       amount: chargeAmount,
-      status: 'pending', // Use the status field here as well
+      status: 'pending',
       billId: bill.id,
-      name: bill.name, // Assign the bill name to the charge
+      name: bill.name,
+      dueDate: bill.dueDate
     }));
 
-    // Bulk create charges
     const createdCharges = await Charge.bulkCreate(charges);
 
-    // Create notifications for each user
     const notifications = createdCharges.map((charge) => ({
       userId: charge.userId,
-      message: `Hey user, you have a new charge of $${charge.amount} for ${charge.name}.`,
+      message: `Hey user, you have a new charge of $${Number(charge.amount).toFixed(2)} for ${charge.name}.`,
+      metadata: {
+        type: 'new_charge',
+        chargeId: charge.id,
+        billId: bill.id,
+        amount: Number(charge.amount)
+      }
     }));
 
-    // Bulk create notifications
     await Notification.bulkCreate(notifications);
 
-    // Update each user's balance
     for (const user of users) {
-      user.balance += chargeAmount;
+      user.balance = (parseFloat(user.balance || 0) + chargeAmount).toFixed(2);
       await user.save();
     }
 
-    // Update the house's balance by adding the bill amount
     const house = await House.findByPk(houseId);
-    house.balance += amount; // Assuming House has a balance field
-    await house.save();
+    if (house && house.balance !== undefined) {
+      const newBalance = parseFloat(house.balance || 0) + parseFloat(amount);
+      house.balance = newBalance; // The setter will handle the formatting
+      await house.save();
+    }
 
     res.status(201).json({
       message: 'Bill, charges, and notifications created successfully',
       bill,
+      charges: createdCharges
     });
   } catch (error) {
     console.error('Error creating bill:', error);
@@ -75,24 +78,28 @@ exports.createBill = async (req, res, next) => {
   }
 };
 
-// Get all bills for a specific house
 exports.getBillsForHouse = async (req, res, next) => {
   try {
     const { houseId } = req.params;
+    const { billType } = req.query;
 
     const house = await House.findByPk(houseId);
     if (!house) {
       return res.status(404).json({ message: 'House not found' });
     }
 
+    const whereCondition = { houseId };
+    if (billType) {
+      whereCondition.billType = billType;
+    }
+
     const bills = await Bill.findAll({
-      where: { houseId },
-      // Replace "paid" with "status" here
-      attributes: ['id', 'name', 'amount', 'status'],
+      where: whereCondition,
+      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'], // Use "status" for charges as well
+          attributes: ['id', 'amount', 'status', 'name', 'userId'],
           include: [
             {
               model: User,
@@ -100,7 +107,13 @@ exports.getBillsForHouse = async (req, res, next) => {
             },
           ],
         },
+        {
+          model: HouseService,
+          as: 'houseService',
+          attributes: ['id', 'name', 'type']
+        }
       ],
+      order: [['createdAt', 'DESC']]
     });
 
     res.status(200).json(bills);
@@ -110,7 +123,6 @@ exports.getBillsForHouse = async (req, res, next) => {
   }
 };
 
-// Get a specific bill for a specific house
 exports.getBillForHouse = async (req, res, next) => {
   try {
     const { houseId, billId } = req.params;
@@ -122,12 +134,11 @@ exports.getBillForHouse = async (req, res, next) => {
 
     const bill = await Bill.findOne({
       where: { id: billId, houseId },
-      // Replace "paid" with "status" here as well
-      attributes: ['id', 'name', 'amount', 'status'],
+      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'], // Use "status" for charges
+          attributes: ['id', 'amount', 'status', 'name', 'userId'],
           include: [
             {
               model: User,
@@ -135,6 +146,16 @@ exports.getBillForHouse = async (req, res, next) => {
             },
           ],
         },
+        {
+          model: HouseService,
+          as: 'houseService',
+          attributes: ['id', 'name', 'type']
+        },
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'username']
+        }
       ],
     });
 
@@ -148,3 +169,244 @@ exports.getBillForHouse = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.generateFixedBills = async (req, res, next) => {
+  try {
+    const { houseId } = req.params;
+    
+    let result;
+    if (houseId === '0') {
+      result = await billService.generateFixedRecurringBills();
+    } else {
+      const services = await HouseService.findAll({
+        where: {
+          houseId,
+          status: 'active',
+          type: 'fixed_recurring'
+        }
+      });
+      
+      const results = [];
+      for (const service of services) {
+        try {
+          const billResult = await billService.createBillForFixedService(service);
+          results.push({
+            serviceId: service.id,
+            serviceName: service.name,
+            billId: billResult.bill.id,
+            amount: billResult.bill.amount,
+            success: true
+          });
+        } catch (error) {
+          console.error(`Error creating bill for service ${service.id}:`, error);
+          results.push({
+            serviceId: service.id,
+            serviceName: service.name,
+            success: false,
+            error: error.message
+          });
+        }
+      }
+      
+      result = {
+        processedCount: services.length,
+        successCount: results.filter(r => r.success).length,
+        failureCount: results.filter(r => !r.success).length,
+        results
+      };
+    }
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error generating fixed bills:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate fixed bills',
+      details: error.message
+    });
+  }
+};
+
+exports.submitVariableBillAmount = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { amount, userId } = req.body;
+    
+    if (!serviceId || !amount || !userId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const service = await HouseService.findByPk(serviceId);
+    if (!service) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+    
+    if (service.type !== 'variable_recurring') {
+      return res.status(400).json({ error: 'Service is not a variable recurring service' });
+    }
+    
+    if (service.designatedUserId && service.designatedUserId !== parseInt(userId)) {
+      return res.status(403).json({ 
+        error: 'Only the designated user can submit bill amounts for this service' 
+      });
+    }
+
+    const today = new Date();
+    const dueDate = new Date(today.getFullYear(), today.getMonth(), service.dueDay || 1);
+    if (dueDate < today) {
+      dueDate.setMonth(dueDate.getMonth() + 1);
+    }
+
+    const transaction = await require('../models').sequelize.transaction();
+    
+    try {
+      const bill = await Bill.create({
+        houseId: service.houseId,
+        amount,
+        houseService_id: service.id,
+        name: service.name,
+        status: 'pending',
+        dueDate,
+        billType: 'variable_recurring',
+        createdBy: userId,
+        metadata: {
+          submittedAt: new Date(),
+          submittedByUserId: userId
+        }
+      }, { transaction });
+      
+      const users = await User.findAll({ 
+        where: { houseId: service.houseId },
+        transaction
+      });
+      
+      if (!users.length) {
+        throw new Error('No users found for this house');
+      }
+      
+      const numberOfUsers = users.length;
+      const chargeAmount = amount / numberOfUsers;
+      
+      const chargeData = users.map((user) => ({
+        userId: user.id,
+        billId: bill.id,
+        amount: chargeAmount,
+        name: service.name,
+        status: 'pending',
+        dueDate: bill.dueDate
+      }));
+      
+      const createdCharges = await Charge.bulkCreate(chargeData, { transaction });
+      
+      const notificationData = users.map((user) => ({
+        userId: user.id,
+        message: `You have a new charge of $${chargeAmount.toFixed(2)} for ${service.name}.`,
+        isRead: false,
+        metadata: {
+          type: 'new_charge',
+          billId: bill.id,
+          serviceId: service.id,
+          amount: chargeAmount
+        }
+      }));
+      
+      await Notification.bulkCreate(notificationData, { transaction });
+      
+      for (const user of users) {
+        user.balance = (parseFloat(user.balance) + parseFloat(chargeAmount)).toFixed(2);
+        await user.save({ transaction });
+      }
+      
+      await transaction.commit();
+      
+      res.status(201).json({
+        message: 'Variable bill created successfully',
+        bill,
+        charges: createdCharges
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error submitting variable bill amount:', error);
+    res.status(500).json({ 
+      error: 'Failed to submit variable bill amount',
+      details: error.message
+    });
+  }
+};
+
+exports.getUserVariableServices = async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'Missing required userId parameter' });
+    }
+    
+    const services = await HouseService.findAll({
+      where: {
+        type: 'variable_recurring',
+        designatedUserId: userId,
+        status: 'active'
+      },
+      include: [{
+        model: User,
+        as: 'designatedUser',
+        attributes: ['id', 'username', 'email']
+      }]
+    });
+    
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    const servicesWithBillStatus = await Promise.all(services.map(async (service) => {
+      const existingBill = await Bill.findOne({
+        where: {
+          houseService_id: service.id,
+          billType: 'variable_recurring',
+          createdAt: {
+            [Op.gte]: firstDayOfMonth
+          }
+        }
+      });
+      
+      return {
+        ...service.toJSON(),
+        hasBillThisMonth: !!existingBill,
+        currentBill: existingBill ? {
+          id: existingBill.id,
+          amount: existingBill.amount,
+          status: existingBill.status,
+          dueDate: existingBill.dueDate
+        } : null
+      };
+    }));
+    
+    res.status(200).json({
+      message: 'Variable services retrieved successfully',
+      services: servicesWithBillStatus
+    });
+  } catch (error) {
+    console.error('Error fetching user variable services:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch variable services',
+      details: error.message
+    });
+  }
+};
+
+exports.generateVariableReminders = async (req, res) => {
+  try {
+    const result = await billService.generateVariableServiceReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error generating variable service reminders:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate variable service reminders',
+      details: error.message
+    });
+  }
+};
+
+module.exports = exports;

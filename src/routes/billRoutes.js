@@ -1,6 +1,55 @@
+// src/routes/billRoutes.js
 const express = require('express');
 const router = express.Router();
 const billController = require('../controllers/billController');
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     Bill:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *           example: 1
+ *         name:
+ *           type: string
+ *           example: "Internet Bill"
+ *         amount:
+ *           type: number
+ *           format: float
+ *           example: 89.99
+ *         status:
+ *           type: string
+ *           enum: [pending, partial_paid, paid]
+ *           example: "pending"
+ *         billType:
+ *           type: string
+ *           enum: [regular, fixed_recurring, variable_recurring]
+ *           example: "regular"
+ *         dueDate:
+ *           type: string
+ *           format: date
+ *           example: "2025-03-01"
+ *     Charge:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *           example: 1
+ *         userId:
+ *           type: integer
+ *           example: 2
+ *         amount:
+ *           type: number
+ *           format: float
+ *           example: 29.99
+ *         status:
+ *           type: string
+ *           enum: [pending, paid]
+ *           example: "pending"
+ */
 
 /**
  * @swagger
@@ -21,17 +70,54 @@ const billController = require('../controllers/billController');
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - houseServiceId
+ *               - amount
  *             properties:
  *               houseServiceId:
  *                 type: integer
+ *                 example: 1
+ *                 description: ID of the house service this bill is for
  *               amount:
- *                 type: integer
+ *                 type: number
+ *                 format: float
+ *                 example: 89.99
+ *                 description: The bill amount
+ *               billType:
+ *                 type: string
+ *                 enum: [regular, fixed_recurring, variable_recurring]
+ *                 example: "regular"
+ *                 description: Type of bill (optional)
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *                 example: "2025-03-01"
+ *                 description: When the bill is due (optional)
  *     responses:
  *       201:
- *         description: Bill created and charges distributed successfully
+ *         description: Bill created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Bill, charges, and notifications created successfully"
+ *                 bill:
+ *                   $ref: '#/components/schemas/Bill'
+ *                 charges:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Charge'
+ *       400:
+ *         description: Bad request - Invalid input data
+ *       404:
+ *         description: House or service not found
+ *       500:
+ *         description: Server error
  */
 router.post('/:houseId/bills', billController.createBill);
-
 
 /**
  * @swagger
@@ -46,24 +132,23 @@ router.post('/:houseId/bills', billController.createBill);
  *         schema:
  *           type: integer
  *         description: The house ID
+ *       - in: query
+ *         name: billType
+ *         schema:
+ *           type: string
+ *           enum: [regular, fixed_recurring, variable_recurring]
+ *         description: Filter bills by type (optional)
  *     responses:
  *       200:
- *         description: List of all bills for the house
+ *         description: List of bills retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: array
  *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   houseId:
- *                     type: integer
- *                   amount:
- *                     type: integer
- *                   status:
- *                     type: boolean
+ *                 $ref: '#/components/schemas/Bill'
+ *       404:
+ *         description: House not found
  */
 router.get('/:houseId/bills', billController.getBillsForHouse);
 
@@ -88,21 +173,165 @@ router.get('/:houseId/bills', billController.getBillsForHouse);
  *         description: The bill ID
  *     responses:
  *       200:
- *         description: The bill for the house
+ *         description: Bill retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Bill'
+ *       404:
+ *         description: House or bill not found
+ */
+router.get('/:houseId/bills/:billId', billController.getBillForHouse);
+
+/**
+ * @swagger
+ * /houses/{houseId}/generate-fixed-bills:
+ *   post:
+ *     summary: Generate bills for fixed recurring services
+ *     tags: [Bills]
+ *     parameters:
+ *       - in: path
+ *         name: houseId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The house ID (use 0 for all houses)
+ *     responses:
+ *       200:
+ *         description: Bills generated successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 id:
+ *                 processedCount:
  *                   type: integer
- *                 houseId:
+ *                   example: 3
+ *                 successCount:
  *                   type: integer
- *                 amount:
+ *                   example: 2
+ *                 failureCount:
  *                   type: integer
- *                 status:
- *                   type: boolean
+ *                   example: 1
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       serviceId:
+ *                         type: integer
+ *                       serviceName:
+ *                         type: string
+ *                       success:
+ *                         type: boolean
  */
-router.get('/:houseId/bills/:billId', billController.getBillForHouse);
+router.post('/:houseId/generate-fixed-bills', billController.generateFixedBills);
+
+/**
+ * @swagger
+ * /user/variable-services:
+ *   get:
+ *     summary: Get all variable services for which the user is designated
+ *     tags: [Bills]
+ *     parameters:
+ *       - in: query
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: Variable services retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 services:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ */
+router.get('/user/variable-services', billController.getUserVariableServices);
+
+/**
+ * @swagger
+ * /services/{serviceId}/submit-bill:
+ *   post:
+ *     summary: Submit a variable bill amount
+ *     tags: [Bills]
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the variable service
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - userId
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 format: float
+ *                 example: 125.50
+ *               userId:
+ *                 type: integer
+ *                 example: 1
+ *     responses:
+ *       201:
+ *         description: Variable bill created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 bill:
+ *                   $ref: '#/components/schemas/Bill'
+ */
+router.post('/services/:serviceId/submit-bill', billController.submitVariableBillAmount);
+
+/**
+ * @swagger
+ * /generate-variable-reminders:
+ *   post:
+ *     summary: Generate reminders for variable service bills
+ *     tags: [Bills]
+ *     responses:
+ *       200:
+ *         description: Reminders generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 processedCount:
+ *                   type: integer
+ *                 successCount:
+ *                   type: integer
+ *                 failureCount:
+ *                   type: integer
+ */
+router.post('/generate-variable-reminders', billController.generateVariableReminders);
 
 module.exports = router;

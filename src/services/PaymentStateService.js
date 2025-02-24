@@ -82,39 +82,80 @@ class PaymentStateService {
     
     try {
       const payment = await Payment.findByPk(paymentId, {
-        include: [{
-          model: Task,
-          as: 'task',
-          include: [{
-            model: ServiceRequestBundle,
-            as: 'serviceRequestBundle'
-          }]
-        }],
         transaction
       });
-
-      if (!payment || !payment.task) {
-        throw new Error('Payment or associated task not found');
+  
+      if (!payment) {
+        throw new Error('Payment not found');
       }
-
+  
       // Update payment status
       payment.status = 'completed';
       payment.paymentDate = new Date();
       await payment.save({ transaction });
-
-      // Update task status
-      const task = payment.task;
-      task.paymentStatus = 'completed';
-      if (task.response === 'accepted') {
-        task.status = true;
+  
+      // Handle different payment types
+      if (payment.paymentType === 'task' && payment.metadata && payment.metadata.taskId) {
+        const taskId = payment.metadata.taskId;
+        const task = await Task.findByPk(taskId, {
+          include: [{
+            model: ServiceRequestBundle,
+            as: 'serviceRequestBundle'
+          }],
+          transaction
+        });
+  
+        if (!task) {
+          throw new Error('Task not found for payment');
+        }
+  
+        // Update task status
+        task.paymentStatus = 'completed';
+        if (task.response === 'accepted') {
+          task.status = true;
+        }
+        await task.save({ transaction });
+  
+        // Update bundle status
+        if (task.serviceRequestBundle) {
+          await this.updateBundleStatus(task.serviceRequestBundle.id);
+        }
+      } else if (payment.paymentType === 'batch' && payment.metadata && payment.metadata.chargeIds) {
+        // Update charges for batch payments
+        const chargeIds = payment.metadata.chargeIds;
+        const charges = await Charge.findAll({
+          where: { id: chargeIds },
+          include: [{
+            model: Bill,
+            as: 'bill'
+          }],
+          transaction
+        });
+  
+        for (const charge of charges) {
+          charge.status = 'paid';
+          charge.stripePaymentIntentId = payment.stripePaymentIntentId;
+          await charge.save({ transaction });
+  
+          // Update bill status if all charges are paid
+          if (charge.bill) {
+            const pendingCharges = await Charge.count({
+              where: {
+                billId: charge.bill.id,
+                status: 'pending'
+              },
+              transaction
+            });
+  
+            const billStatus = pendingCharges === 0 ? 'paid' : 'partial_paid';
+            await Bill.update(
+              { status: billStatus },
+              { where: { id: charge.bill.id }, transaction }
+            );
+          }
+        }
       }
-      await task.save({ transaction });
-
-      // Update bundle status
-      if (task.serviceRequestBundle) {
-        await this.updateBundleStatus(task.serviceRequestBundle.id);
-      }
-
+  
       await transaction.commit();
       return payment;
     } catch (error) {
@@ -122,7 +163,6 @@ class PaymentStateService {
       throw error;
     }
   }
-
   /**
    * Check if all roommates have pledged and paid
    */

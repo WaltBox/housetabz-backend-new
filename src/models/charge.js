@@ -1,36 +1,33 @@
-// src/models/Charge.js
+// Updated Charge model with simplified status
 module.exports = (sequelize, DataTypes) => {
   const Charge = sequelize.define('Charge', {
     amount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
-      validate: {
-        min: 0
-      }
+      validate: { min: 0 }
     },
     name: {
       type: DataTypes.STRING,
       allowNull: false
     },
     status: {
-      type: DataTypes.STRING,  // Changed from ENUM to STRING
+      type: DataTypes.STRING,
       allowNull: false,
-      defaultValue: 'pending',
-      validate: {
-        isIn: [['pending', 'processing', 'paid', 'failed']]  // Validation moved here
+      defaultValue: 'unpaid',
+      validate: { 
+        isIn: [['unpaid', 'processing', 'paid', 'failed']] 
       }
     },
     stripePaymentIntentId: {
       type: DataTypes.STRING,
-      allowNull: true,
-      unique: true
+      allowNull: true
     },
     paymentMethodId: {
       type: DataTypes.STRING,
       allowNull: true
     },
     errorMessage: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true
     },
     retryCount: {
@@ -68,7 +65,7 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Instance methods remain the same
+  // Updated instance method with 'unpaid' status
   Charge.prototype.processPayment = async function(stripeService) {
     try {
       this.status = 'processing';
@@ -85,8 +82,12 @@ module.exports = (sequelize, DataTypes) => {
 
       return true;
     } catch (error) {
+      const errorMsg = error.message && error.message.length > 1000 
+        ? error.message.substring(0, 1000) 
+        : error.message;
+      
       this.status = 'failed';
-      this.errorMessage = error.message;
+      this.errorMessage = errorMsg;
       this.retryCount += 1;
       await this.save();
       

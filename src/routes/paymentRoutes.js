@@ -102,6 +102,7 @@ const auth = require('../middleware/auth');
  */
 router.post('/tasks/:taskId', auth, paymentController.processPayment);
 
+router.post('/batch', auth, paymentController.processBatchPayment);
 /**
  * @swagger
  * /api/payments/{paymentId}/status:

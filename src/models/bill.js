@@ -33,6 +33,24 @@ module.exports = (sequelize, DataTypes) => {
     metadata: {
       type: DataTypes.JSONB,
       defaultValue: {}
+    },
+    // New fields
+    billType: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'regular',
+      validate: {
+        isIn: [['regular', 'fixed_recurring', 'variable_recurring']]
+      }
+    },
+    createdBy: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Users',
+        key: 'id'
+      },
+      comment: 'User ID who submitted the bill (for variable bills)'
     }
   });
 
@@ -52,6 +70,14 @@ module.exports = (sequelize, DataTypes) => {
 
     Bill.hasMany(models.Charge, { 
       foreignKey: 'billId'
+    });
+
+    // New association
+    Bill.belongsTo(models.User, {
+      foreignKey: 'createdBy',
+      as: 'creator',
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL'
     });
   };
 

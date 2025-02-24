@@ -1,9 +1,9 @@
-// models/Payment.js
+// Updated Payment model with TEXT type for errorMessage
 module.exports = (sequelize, DataTypes) => {
   const Payment = sequelize.define('Payment', {
     taskId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true, // Allow null taskId
       references: {
         model: 'Tasks',
         key: 'id'
@@ -25,10 +25,10 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     status: {
-      type: DataTypes.STRING,  // Changed from ENUM to STRING
+      type: DataTypes.STRING,
       defaultValue: 'pending',
       validate: {
-        isIn: [['pending', 'processing', 'completed', 'failed']]  // Validation moved here
+        isIn: [['pending', 'processing', 'completed', 'failed']]
       }
     },
     stripePaymentIntentId: {
@@ -41,7 +41,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     errorMessage: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT, // Changed from STRING to TEXT
       allowNull: true
     },
     retryCount: {
