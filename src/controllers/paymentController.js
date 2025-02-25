@@ -1,5 +1,5 @@
 // src/controllers/paymentController.js
-const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod } = require('../models');
+const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
 const { sequelize } = require('../models');
@@ -151,14 +151,14 @@ const paymentController = {
       const { chargeIds, paymentMethodId } = req.body;
       const idempotencyKey = req.headers['idempotency-key'];
       const userId = req.user.id;
-
+  
       if (!idempotencyKey) {
         return res.status(400).json({ 
           error: 'Missing idempotency key',
           code: 'MISSING_IDEMPOTENCY_KEY'
         });
       }
-
+  
       // Check for existing payment with this idempotency key
       const existingIdempotentPayment = await Payment.findOne({
         where: { idempotencyKey }
@@ -169,7 +169,7 @@ const paymentController = {
           payment: existingIdempotentPayment
         });
       }
-
+  
       // Fetch and validate all charges for the user
       const charges = await Charge.findAll({
         where: { 
@@ -183,12 +183,12 @@ const paymentController = {
           error: 'One or more charges not found or not eligible for payment' 
         });
       }
-
+  
       // Calculate total amount from the charges
       const totalAmount = charges.reduce((sum, charge) => 
         sum + Number(charge.amount), 0
       );
-
+  
       // Create Payment record first
       let payment = await Payment.create({
         userId,
@@ -216,13 +216,13 @@ const paymentController = {
             type: 'batch_payment'
           }
         }, idempotencyKey);
-
+  
         await payment.update({
           stripePaymentIntentId: paymentIntent.id,
           status: 'completed',
           paymentDate: new Date()
         }, { transaction });
-
+  
         // Update each charge to mark it as paid
         await Promise.all(charges.map(charge => 
           charge.update({
@@ -231,7 +231,25 @@ const paymentController = {
             paymentMethodId: String(paymentMethodId)
           }, { transaction })
         ));
-
+  
+        // Find the user to update their balance
+        const user = await User.findByPk(userId, { transaction });
+        if (user) {
+          // Update user balance by subtracting the payment amount
+          user.balance = (parseFloat(user.balance || 0) - parseFloat(totalAmount)).toFixed(2);
+          await user.save({ transaction });
+  
+          // If user belongs to a house, update house balance too
+          if (user.houseId) {
+            const house = await House.findByPk(user.houseId, { transaction });
+            if (house && house.balance !== undefined) {
+              // Update house balance
+              house.balance = (parseFloat(house.balance || 0) - parseFloat(totalAmount)).toFixed(2);
+              await house.save({ transaction });
+            }
+          }
+        }
+  
         await transaction.commit();
         payment = await Payment.findByPk(payment.id);
         return res.json({
