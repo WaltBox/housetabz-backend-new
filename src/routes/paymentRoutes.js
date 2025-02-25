@@ -4,7 +4,7 @@ const router = express.Router();
 const paymentController = require('../controllers/paymentController');
 const webhookController = require('../controllers/webhookController');
 const auth = require('../middleware/auth');
-
+const authMiddleware = require('../middleware/authMiddleware');
 /**
  * @swagger
  * components:
@@ -192,5 +192,8 @@ router.post('/webhook',
   express.raw({type: 'application/json'}),
   webhookController.handleWebhook
 );
+
+
+
 
 module.exports = router;

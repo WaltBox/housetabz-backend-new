@@ -3,19 +3,14 @@ const express = require('express');
 const { body } = require('express-validator');
 const router = express.Router();
 const userController = require('../controllers/userController');
+const paymentController = require('../controllers/paymentController'); // import PaymentController
 const { updateUserHouse } = require('../controllers/userController');
-/**
- * @swagger
- * tags:
- *   name: Users
- *   description: User management and retrieval
- */
 
 /**
  * @swagger
- * /users/{id}:
+ * /users/{id}/payments:
  *   get:
- *     summary: Get a specific user by ID
+ *     summary: Get all payments made by the user
  *     tags: [Users]
  *     parameters:
  *       - in: path
@@ -23,88 +18,27 @@ const { updateUserHouse } = require('../controllers/userController');
  *         required: true
  *         schema:
  *           type: integer
- *         description: User ID
+ *         description: The user ID
  *     responses:
  *       200:
- *         description: User details
+ *         description: A list of payments with associated charge details
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 id:
- *                   type: integer
- *                 username:
- *                   type: string
- *                 email:
- *                   type: string
- *                 houseId:
- *                   type: integer
+ *                 payments:
+ *                   type: array
+ *                   items:
+ *                     type: object
  *       404:
  *         description: User not found
  */
+router.get('/:id/payments', paymentController.getUserPayments);
+
+// Existing user routes:
 router.get('/:id', userController.getUser);
-
-/**
- * @swagger
- * /users:
- *   get:
- *     summary: Get all users
- *     tags: [Users]
- *     responses:
- *       200:
- *         description: List of all users
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   username:
- *                     type: string
- *                   email:
- *                     type: string
- */
 router.get('/', userController.getAllUsers);
-
-/**
- * @swagger
- * /users:
- *   post:
- *     summary: Create a new user
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - username
- *               - email
- *               - password
- *             properties:
- *               username:
- *                 type: string
- *                 example: "johndoe"
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "john@example.com"
- *               password:
- *                 type: string
- *                 format: password
- *                 minLength: 6
- *                 example: "password123"
- *     responses:
- *       201:
- *         description: User created successfully
- *       400:
- *         description: Validation error or user already exists
- */
 router.post(
   '/',
   [
@@ -117,111 +51,8 @@ router.post(
   ],
   userController.createUser
 );
-
-/**
- * @swagger
- * /users/{id}:
- *   put:
- *     summary: Update a user
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               username:
- *                 type: string
- *               email:
- *                 type: string
- *               houseId:
- *                 type: integer
- *     responses:
- *       200:
- *         description: User updated successfully
- */
 router.put('/:id', userController.updateUser);
-
-/**
- * @swagger
- * /users/{id}:
- *   delete:
- *     summary: Delete a user
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *     responses:
- *       200:
- *         description: User deleted successfully
- */
 router.delete('/:id', userController.deleteUser);
-
-/**
- * @swagger
- * /users/{id}/house:
- *   put:
- *     summary: Update a user's houseId
- *     description: Adds a user to a house by updating their houseId.
- *     tags:
- *       - Users
- *     parameters:
- *       - in: path
- *         name: id
- *         schema:
- *           type: integer
- *         required: true
- *         description: The user ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               houseId:
- *                 type: integer
- *                 example: 1
- *     responses:
- *       200:
- *         description: Successfully updated user's houseId
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: User added to the house
- *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       example: 1
- *                     houseId:
- *                       type: integer
- *                       example: 2
- *       404:
- *         description: User not found
- *       500:
- *         description: Failed to update houseId
- */
-
-router.put('/:id/house', updateUserHouse);  
-
-
+router.put('/:id/house', updateUserHouse);
 
 module.exports = router;

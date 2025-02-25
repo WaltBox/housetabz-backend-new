@@ -343,6 +343,43 @@ const paymentController = {
       logger.error('Error retrying payment:', error);
       return res.status(500).json({ error: 'Failed to retry payment' });
     }
+  },
+
+  // NEW: Get all payments for a given user (with associated charge details)
+  async getUserPayments(req, res) {
+    try {
+      // Expecting a parameter named userId (or id if using a user route)
+      const userId = req.params.userId || req.params.id;
+      if (!userId) {
+        return res.status(400).json({ error: 'Missing user identifier' });
+      }
+      // Optionally, verify authorization here (e.g., req.user.id === userId)
+
+      // Fetch all payments for the user
+      const payments = await Payment.findAll({
+        where: { userId },
+        order: [['paymentDate', 'DESC']]
+      });
+
+      // For each payment, enrich with associated charges if metadata has chargeIds
+      const paymentsWithCharges = await Promise.all(
+        payments.map(async (payment) => {
+          const chargeIds = payment.metadata.chargeIds;
+          let charges = [];
+          if (Array.isArray(chargeIds) && chargeIds.length > 0) {
+            charges = await Charge.findAll({
+              where: { id: chargeIds, userId }
+            });
+          }
+          return { ...payment.toJSON(), charges };
+        })
+      );
+
+      return res.json({ payments: paymentsWithCharges });
+    } catch (error) {
+      console.error('Error fetching user payments:', error);
+      return res.status(500).json({ error: 'Failed to fetch user payments' });
+    }
   }
 };
 
