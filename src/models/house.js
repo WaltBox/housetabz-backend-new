@@ -3,41 +3,7 @@ const { Model, DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   class House extends Model {
-    /**
-     * Updates the house with meter_id and utility_id from the API response.
-     * @param {House} house - The house instance to update.
-     */
-    // static async updateMeterAndUtility(house) {
-    //   try {
-    //     const response = await axios.post('http://localhost:3000/api/v2/addresses/availability', {
-    //       address_line: house.address_line,
-    //       secondary_line: house.secondary_line,
-    //       city: house.city,
-    //       state: house.state,
-    //       zip_code: house.zip_code,
-    //     });
-
-    //     console.log('API Response:', response.data); // Log the API response
-
-    //     // Extract data from the correct API response structure
-    //     const addressData = response.data?.address;
-
-    //     if (addressData) {
-    //       const { meter_id, utility_id } = addressData;
-
-    //       // Update the house instance with meter_id and utility_id
-    //       await house.update({ meter_id, utility_id });
-
-    //       console.log('House successfully updated with meter_id and utility_id:', { 
-    //         meter_id, utility_id 
-    //       });
-    //     } else {
-    //       console.warn('No address data found in API response.');
-    //     }
-    //   } catch (error) {
-    //     console.error('Error updating meter_id and utility_id:', error);
-    //   }
-    // }
+  
   }
 
   // Initialize the House model with relevant fields and validations
@@ -108,10 +74,10 @@ module.exports = (sequelize) => {
   );
 
   // Hook to run after a house is created
-  House.afterCreate(async (house) => {
-    console.log('House created. Now attempting to update with API data...');
-    await House.updateMeterAndUtility(house); // Call the update function here
-  });
+  // House.afterCreate(async (house) => {
+  //   console.log('House created. Now attempting to update with API data...');
+
+  // });
 
   House.associate = (models) => {
     House.hasMany(models.User, { foreignKey: 'houseId', as: 'users' }); // Associate House with Users

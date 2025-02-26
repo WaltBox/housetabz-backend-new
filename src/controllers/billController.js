@@ -193,8 +193,8 @@ exports.generateFixedBills = async (req, res, next) => {
           results.push({
             serviceId: service.id,
             serviceName: service.name,
-            billId: billResult.bill.id,
-            amount: billResult.bill.amount,
+            billId: billResult?.bill?.id || null, // Add null checks here
+            amount: billResult?.bill?.amount || null,
             success: true
           });
         } catch (error) {

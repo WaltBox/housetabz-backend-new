@@ -10,7 +10,8 @@ const takeOverRequestController = {
         monthlyAmount,
         dueDate,
         requiredUpfrontPayment,
-        userId 
+        userId,
+        isFixedService // Add this new parameter
       } = req.body;
 
       // Validate input
@@ -24,6 +25,15 @@ const takeOverRequestController = {
         return res.status(404).json({ error: 'User not found' });
       }
 
+      // Calculate createDay (approximately 2 weeks before dueDay)
+      let createDay = null;
+      if (dueDate) {
+        // If dueDate is less than 15, createDay will be in previous month
+        // We add 16 to get about 2 weeks before, then modulo 31 and adjust
+        createDay = (parseInt(dueDate) + 16) % 31;
+        if (createDay === 0) createDay = 31;
+      }
+
       // Create the TakeOverRequest
       const takeOverRequest = await TakeOverRequest.create({
         serviceName,
@@ -31,6 +41,7 @@ const takeOverRequestController = {
         monthlyAmount,
         dueDate,
         requiredUpfrontPayment,
+        serviceType: isFixedService ? 'fixed' : 'variable', // Set service type based on checkbox
         status: 'pending'
       });
 
@@ -40,7 +51,11 @@ const takeOverRequestController = {
         userId,
         takeOverRequestId: takeOverRequest.id,
         status: 'pending',
-        totalPaidUpfront: 0
+        totalPaidUpfront: 0,
+        type: isFixedService ? 'fixed_recurring' : 'variable_recurring', // Set bundle type
+        metadata: {
+          createDay: createDay
+        }
       });
 
       // Fetch all roommates including the creator
@@ -76,7 +91,8 @@ const takeOverRequestController = {
         message: 'Take over request and service request bundle created successfully',
         takeOverRequest,
         serviceRequestBundle,
-        tasks: createdTasks
+        tasks: createdTasks,
+        createDay: createDay // Return the calculated createDay
       });
     } catch (error) {
       console.error('Error creating take over request:', error);

@@ -49,6 +49,15 @@ module.exports = (sequelize, DataTypes) => {
       },
       comment: 'Day of month when bill is due'
     },
+    createDay: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      validate: {
+        min: 1,
+        max: 31
+      },
+      comment: 'Day of month when bill should be created'
+    },
     designatedUserId: {
       type: DataTypes.INTEGER,
       allowNull: true,

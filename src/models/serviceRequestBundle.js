@@ -3,6 +3,7 @@ const webhookService = require('../services/webhookService');
 
 // Helper function to create a HouseService from a bundle
 // Simplified createHouseServiceFromBundle function
+// Helper function to create a HouseService from a bundle
 async function createHouseServiceFromBundle(bundleId, sequelize) {
   try {
     console.log('Creating HouseService for bundle:', bundleId);
@@ -31,7 +32,9 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       virtualCardRequestId: bundle.virtualCardRequestId,
       hasStaged: !!bundle.stagedRequest,
       hasTakeOver: !!bundle.takeOverRequest,
-      hasVirtualCard: !!bundle.virtualCardRequest
+      hasVirtualCard: !!bundle.virtualCardRequest,
+      type: bundle.type,
+      metadata: bundle.metadata
     });
     
     // Check if a HouseService already exists for this bundle
@@ -45,7 +48,6 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
     }
     
     // Determine service type - default to marketplace_onetime if not set
-    // Note: If the migration ran correctly, this should be set
     let serviceType = 'marketplace_onetime';
     
     // If bundle has type field with value, use it
@@ -88,9 +90,21 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       
       if (takeOverRequest) {
         console.log('Adding TakeOverRequest data:', takeOverRequest.serviceName);
+        
+        // Calculate createDay from dueDate if this is a recurring service
+        let createDay = null;
+        const dueDay = Number(takeOverRequest.dueDate);
+        
+        if (dueDay && (serviceType === 'fixed_recurring' || serviceType === 'variable_recurring')) {
+          createDay = (dueDay + 16) % 31;
+          if (createDay === 0) createDay = 31;
+          console.log(`Calculated createDay: ${createDay} from dueDay: ${dueDay}`);
+        }
+        
         houseServiceData.name = takeOverRequest.serviceName;
         houseServiceData.accountNumber = takeOverRequest.accountNumber;
-        houseServiceData.dueDay = takeOverRequest.dueDate;
+        houseServiceData.dueDay = dueDay;
+        houseServiceData.createDay = createDay;
         houseServiceData.designatedUserId = bundle.userId;
         
         // Add amount only for fixed recurring services
@@ -144,7 +158,16 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       houseServiceData.name = `Service ${bundleId}`;
     }
     
-    console.log('Creating HouseService with data:', houseServiceData);
+    // Check if metadata has createDay (from the takeOverRequestController)
+    if (bundle.metadata && typeof bundle.metadata === 'object') {
+      console.log('Bundle metadata:', bundle.metadata);
+      if (bundle.metadata.createDay && !houseServiceData.createDay) {
+        houseServiceData.createDay = Number(bundle.metadata.createDay);
+        console.log(`Using createDay from metadata: ${houseServiceData.createDay}`);
+      }
+    }
+    
+    console.log('Final HouseService data:', JSON.stringify(houseServiceData, null, 2));
     
     // Create the HouseService
     const houseService = await sequelize.models.HouseService.create(houseServiceData);

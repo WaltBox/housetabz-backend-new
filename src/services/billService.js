@@ -13,17 +13,14 @@ const billService = {
   async generateFixedRecurringBills() {
     try {
       const today = new Date();
+      const currentDay = today.getDate();
       
-      // Find all active fixed recurring services
+      // Find all active fixed recurring services where createDay matches today
       const services = await HouseService.findAll({
         where: {
           status: 'active',
           type: 'fixed_recurring',
-          // Only include services where the dueDay is approximately 2 weeks from now
-          // This gives users time to pay the bill before it's due
-          dueDay: {
-            [Op.between]: [(today.getDate() + 14) % 30 || 30, (today.getDate() + 16) % 30 || 30]
-          }
+          createDay: currentDay
         },
         include: [{
           model: User,
@@ -251,7 +248,7 @@ async function createBillForFixedService(service) {
         billId: bill.id,
         amount: chargeAmount,
         name: service.name,
-        status: 'pending',
+        status: 'unpaid',
         dueDate: bill.dueDate
       }, { transaction });
       
@@ -276,6 +273,13 @@ async function createBillForFixedService(service) {
       await user.save({ transaction });
     }
     
+    // Update house balance - ADD THIS CODE
+    const house = await require('../models').House.findByPk(service.houseId, { transaction });
+    if (house && house.balance !== undefined) {
+      house.balance = (parseFloat(house.balance || 0) + parseFloat(service.amount)).toFixed(2);
+      await house.save({ transaction });
+    }
+    
     await transaction.commit();
     
     return {
@@ -289,4 +293,5 @@ async function createBillForFixedService(service) {
   }
 }
 
+billService.createBillForFixedService = createBillForFixedService;
 module.exports = billService;
