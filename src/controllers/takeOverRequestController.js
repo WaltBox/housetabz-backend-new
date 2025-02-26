@@ -11,68 +11,98 @@ const takeOverRequestController = {
         dueDate,
         requiredUpfrontPayment,
         userId,
-        isFixedService // Add this new parameter
+        isFixedService // Boolean flag to determine if this is a fixed expense
       } = req.body;
-
-      // Validate input
-      if (!serviceName || !accountNumber || !monthlyAmount || !dueDate || !userId) {
+  
+      // Determine service and bundle types based on isFixedService flag
+      const serviceType = isFixedService ? 'fixed' : 'variable';
+      const bundleType = isFixedService ? 'fixed_recurring' : 'variable_recurring';
+  
+      // Validate input - requirements vary based on service type
+      if (!serviceName || !accountNumber || !dueDate || !userId) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
-
+  
+      // For fixed services, monthlyAmount is required
+      if (isFixedService && !monthlyAmount) {
+        return res.status(400).json({ error: 'Monthly amount is required for fixed services' });
+      }
+  
       // Fetch user and their houseId
       const user = await User.findByPk(userId);
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
-
-      // Calculate createDay (approximately 2 weeks before dueDay)
+  
+      // Calculate createDay or reminderDay based on service type
       let createDay = null;
+      let reminderDay = null;
+      
       if (dueDate) {
-        // If dueDate is less than 15, createDay will be in previous month
-        // We add 16 to get about 2 weeks before, then modulo 31 and adjust
-        createDay = (parseInt(dueDate) + 16) % 31;
-        if (createDay === 0) createDay = 31;
+        const dueDateNum = parseInt(dueDate);
+        
+        if (isFixedService) {
+          // For fixed recurring: Calculate createDay (approximately 2 weeks before dueDay)
+          createDay = (dueDateNum + 16) % 31;
+          if (createDay === 0) createDay = 31;
+        } else {
+          // For variable recurring: Calculate reminderDay (approximately 1 week before dueDay)
+          reminderDay = dueDateNum - 7;
+          if (reminderDay <= 0) reminderDay = reminderDay + 30;
+        }
       }
-
+  
+      console.log('Creating TakeOverRequest with data:', {
+        serviceName,
+        accountNumber,
+        monthlyAmount: isFixedService ? monthlyAmount : null,
+        dueDate,
+        requiredUpfrontPayment: requiredUpfrontPayment || 0,
+        serviceType,
+        status: 'pending'
+      });
+  
       // Create the TakeOverRequest
       const takeOverRequest = await TakeOverRequest.create({
         serviceName,
         accountNumber,
-        monthlyAmount,
+        monthlyAmount: isFixedService ? monthlyAmount : null, // Only set for fixed services
         dueDate,
-        requiredUpfrontPayment,
-        serviceType: isFixedService ? 'fixed' : 'variable', // Set service type based on checkbox
+        requiredUpfrontPayment: requiredUpfrontPayment || 0,
+        serviceType,
         status: 'pending'
       });
-
-      // Create the ServiceRequestBundle
+  
+      // Create the ServiceRequestBundle with metadata including createDay or reminderDay
+      const metadata = isFixedService
+        ? { createDay }
+        : { reminderDay };
+  
       const serviceRequestBundle = await ServiceRequestBundle.create({
         houseId: user.houseId,
         userId,
         takeOverRequestId: takeOverRequest.id,
         status: 'pending',
         totalPaidUpfront: 0,
-        type: isFixedService ? 'fixed_recurring' : 'variable_recurring', // Set bundle type
-        metadata: {
-          createDay: createDay
-        }
+        type: bundleType,
+        metadata
       });
-
+  
       // Fetch all roommates including the creator
       const allRoommates = await User.findAll({
         where: { houseId: user.houseId }
       });
-
+  
       // Calculate individual payment if required
       const totalRoommates = allRoommates.length;
       const individualPaymentAmount = requiredUpfrontPayment ? 
         (requiredUpfrontPayment / totalRoommates).toFixed(2) : null;
-
+  
       // Create tasks for all roommates
       const tasks = allRoommates.map((roommate) => {
         const isCreator = String(roommate.id) === String(userId);
         const paymentRequired = !!requiredUpfrontPayment;
-
+  
         return {
           userId: roommate.id,
           serviceRequestBundleId: serviceRequestBundle.id,
@@ -84,15 +114,17 @@ const takeOverRequestController = {
           paymentStatus: paymentRequired ? 'pending' : 'not_required'
         };
       });
-
+  
       const createdTasks = await Task.bulkCreate(tasks);
-
+  
       res.status(201).json({
         message: 'Take over request and service request bundle created successfully',
         takeOverRequest,
         serviceRequestBundle,
         tasks: createdTasks,
-        createDay: createDay // Return the calculated createDay
+        serviceType,
+        createDay,
+        reminderDay
       });
     } catch (error) {
       console.error('Error creating take over request:', error);

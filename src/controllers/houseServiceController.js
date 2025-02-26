@@ -3,10 +3,10 @@ const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, Staged
 // Create a new HouseService
 exports.createHouseService = async (req, res) => {
   try {
-    const { name, status, type, houseId, accountNumber, amount, dueDay, createDay, designatedUserId, serviceRequestBundleId, metadata } = req.body;
+    const { name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata } = req.body;
     
     console.log('[createHouseService] Attempting to create HouseService with data:', {
-      name, status, type, houseId, accountNumber, amount, dueDay, createDay, designatedUserId, serviceRequestBundleId, metadata
+      name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata
     });
 
     const houseService = await HouseService.create({
@@ -18,6 +18,7 @@ exports.createHouseService = async (req, res) => {
       amount,
       dueDay,
       createDay,
+      reminderDay,
       designatedUserId,
       serviceRequestBundleId,
       metadata
@@ -126,7 +127,7 @@ exports.getHouseServiceById = async (req, res) => {
 exports.updateHouseService = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, status, type, accountNumber, amount, dueDay, createDay, designatedUserId, metadata } = req.body;
+    const { name, status, type, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, metadata } = req.body;
     
     const houseService = await HouseService.findByPk(id);
     
@@ -134,7 +135,7 @@ exports.updateHouseService = async (req, res) => {
       return res.status(404).json({ message: 'HouseService not found' });
     }
     
-    console.log('[updateHouseService] Updating HouseService with ID:', id, 'with data:', { name, status, type, accountNumber, amount, dueDay, createDay, designatedUserId, metadata });
+    console.log('[updateHouseService] Updating HouseService with ID:', id, 'with data:', { name, status, type, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, metadata });
     
     // Update the fields
     await houseService.update({
@@ -145,6 +146,7 @@ exports.updateHouseService = async (req, res) => {
       amount: amount !== undefined ? amount : houseService.amount,
       dueDay: dueDay !== undefined ? dueDay : houseService.dueDay,
       createDay: createDay !== undefined ? createDay : houseService.createDay,
+      reminderDay: reminderDay !== undefined ? reminderDay : houseService.reminderDay,
       designatedUserId: designatedUserId !== undefined ? designatedUserId : houseService.designatedUserId,
       metadata: metadata || houseService.metadata
     });
@@ -222,25 +224,33 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
       // Get dueDay from the takeover request
       const dueDay = Number(bundle.takeOverRequest.dueDate);
       
-      // Calculate createDay (approximately 2 weeks before dueDay)
-      let createDay = (dueDay + 16) % 31;
-      if (createDay === 0) createDay = 31;
-      
-      console.log(`[createFromServiceRequestBundle] dueDay: ${dueDay}, calculated createDay: ${createDay}`);
-      
-      // Set common properties for both fixed and variable services
+      // Common properties for both service types
       houseServiceData = {
         ...houseServiceData,
         name: bundle.takeOverRequest.serviceName,
         accountNumber: bundle.takeOverRequest.accountNumber,
         dueDay,
-        createDay,
         designatedUserId: bundle.userId
       };
       
-      // Set amount only for fixed recurring services
+      // Handle specific properties based on service type
       if (bundle.type === 'fixed_recurring') {
+        // For fixed services: Calculate createDay and set amount
+        let createDay = (dueDay + 16) % 31;
+        if (createDay === 0) createDay = 31;
+        
+        houseServiceData.createDay = createDay;
         houseServiceData.amount = bundle.takeOverRequest.monthlyAmount;
+        
+        console.log(`[createFromServiceRequestBundle] Fixed service with dueDay: ${dueDay}, calculated createDay: ${createDay}`);
+      } else {
+        // For variable services: Calculate reminderDay (approximately 1 week before dueDay)
+        let reminderDay = dueDay - 7;
+        if (reminderDay <= 0) reminderDay = reminderDay + 30;
+        
+        houseServiceData.reminderDay = reminderDay;
+        
+        console.log(`[createFromServiceRequestBundle] Variable service with dueDay: ${dueDay}, calculated reminderDay: ${reminderDay}`);
       }
     } else if (bundle.type === 'marketplace_onetime' && bundle.stagedRequest) {
       houseServiceData = {
@@ -259,11 +269,16 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
       return null;
     }
     
-    // Check if there's metadata and if it has createDay
+    // Check if there's metadata with createDay or reminderDay override
     if (bundle.metadata && typeof bundle.metadata === 'object') {
-      if (bundle.metadata.createDay && !houseServiceData.createDay) {
+      if (bundle.type === 'fixed_recurring' && bundle.metadata.createDay && !houseServiceData.createDay) {
         houseServiceData.createDay = Number(bundle.metadata.createDay);
         console.log(`[createFromServiceRequestBundle] Using createDay from metadata: ${houseServiceData.createDay}`);
+      }
+      
+      if (bundle.type === 'variable_recurring' && bundle.metadata.reminderDay && !houseServiceData.reminderDay) {
+        houseServiceData.reminderDay = Number(bundle.metadata.reminderDay);
+        console.log(`[createFromServiceRequestBundle] Using reminderDay from metadata: ${houseServiceData.reminderDay}`);
       }
     }
     

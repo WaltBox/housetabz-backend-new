@@ -13,7 +13,7 @@ module.exports = (sequelize, DataTypes) => {
         isIn: [['active', 'inactive', 'pending']]
       }
     },
-    // New fields for enhanced functionality
+    // Fields for enhanced functionality
     type: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -56,7 +56,16 @@ module.exports = (sequelize, DataTypes) => {
         min: 1,
         max: 31
       },
-      comment: 'Day of month when bill should be created'
+      comment: 'Day of month when bill should be created (for fixed_recurring)'
+    },
+    reminderDay: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      validate: {
+        min: 1,
+        max: 31
+      },
+      comment: 'Day of month when to remind users to enter variable bill amounts (for variable_recurring)'
     },
     designatedUserId: {
       type: DataTypes.INTEGER,
@@ -93,7 +102,7 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'houseService_id',
       as: 'bills'
     });
-    // New associations
+    // Associations
     HouseService.belongsTo(models.User, {
       foreignKey: 'designatedUserId',
       as: 'designatedUser'

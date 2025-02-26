@@ -22,21 +22,6 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       return null;
     }
     
-    // Debug log to see full bundle data
-    console.log('Bundle data:', {
-      id: bundle.id,
-      houseId: bundle.houseId,
-      userId: bundle.userId,
-      stagedRequestId: bundle.stagedRequestId,
-      takeOverRequestId: bundle.takeOverRequestId,
-      virtualCardRequestId: bundle.virtualCardRequestId,
-      hasStaged: !!bundle.stagedRequest,
-      hasTakeOver: !!bundle.takeOverRequest,
-      hasVirtualCard: !!bundle.virtualCardRequest,
-      type: bundle.type,
-      metadata: bundle.metadata
-    });
-    
     // Check if a HouseService already exists for this bundle
     const existingService = await sequelize.models.HouseService.findOne({
       where: { serviceRequestBundleId: bundleId }
@@ -91,20 +76,32 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       if (takeOverRequest) {
         console.log('Adding TakeOverRequest data:', takeOverRequest.serviceName);
         
-        // Calculate createDay from dueDate if this is a recurring service
-        let createDay = null;
+        // Get due day from the takeover request
         const dueDay = Number(takeOverRequest.dueDate);
         
-        if (dueDay && (serviceType === 'fixed_recurring' || serviceType === 'variable_recurring')) {
-          createDay = (dueDay + 16) % 31;
-          if (createDay === 0) createDay = 31;
-          console.log(`Calculated createDay: ${createDay} from dueDay: ${dueDay}`);
+        // Calculate different date fields based on service type
+        if (serviceType === 'fixed_recurring' || serviceType === 'variable_recurring') {
+          // For all recurring services, set the due day
+          houseServiceData.dueDay = dueDay;
+          
+          // For fixed recurring, calculate createDay
+          // For variable recurring, calculate reminderDay
+          if (serviceType === 'fixed_recurring') {
+            let createDay = (dueDay + 16) % 31;
+            if (createDay === 0) createDay = 31;
+            houseServiceData.createDay = createDay;
+            console.log(`Calculated createDay: ${createDay} from dueDay: ${dueDay}`);
+          } else { // variable_recurring
+            // Calculate reminderDay to be approximately 7 days before due date
+            let reminderDay = (dueDay - 7);
+            if (reminderDay <= 0) reminderDay = reminderDay + 30;
+            houseServiceData.reminderDay = reminderDay;
+            console.log(`Calculated reminderDay: ${reminderDay} from dueDay: ${dueDay}`);
+          }
         }
         
         houseServiceData.name = takeOverRequest.serviceName;
         houseServiceData.accountNumber = takeOverRequest.accountNumber;
-        houseServiceData.dueDay = dueDay;
-        houseServiceData.createDay = createDay;
         houseServiceData.designatedUserId = bundle.userId;
         
         // Add amount only for fixed recurring services
@@ -158,12 +155,16 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       houseServiceData.name = `Service ${bundleId}`;
     }
     
-    // Check if metadata has createDay (from the takeOverRequestController)
+    // Check if metadata has createDay or reminderDay (from the takeOverRequestController)
     if (bundle.metadata && typeof bundle.metadata === 'object') {
       console.log('Bundle metadata:', bundle.metadata);
-      if (bundle.metadata.createDay && !houseServiceData.createDay) {
+      if (bundle.metadata.createDay && !houseServiceData.createDay && serviceType === 'fixed_recurring') {
         houseServiceData.createDay = Number(bundle.metadata.createDay);
         console.log(`Using createDay from metadata: ${houseServiceData.createDay}`);
+      }
+      if (bundle.metadata.reminderDay && !houseServiceData.reminderDay && serviceType === 'variable_recurring') {
+        houseServiceData.reminderDay = Number(bundle.metadata.reminderDay);
+        console.log(`Using reminderDay from metadata: ${houseServiceData.reminderDay}`);
       }
     }
     
