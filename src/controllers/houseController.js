@@ -1,59 +1,36 @@
 // src/controllers/houseController.js
 const { House, User, Bill } = require('../models');
-const axios = require('axios'); // Import axios for API requests
+const axios = require('axios'); // still available if needed for other calls
 
-// Create a new house and update it with meter_id and utility_id
+// Create a new house and update the creator's houseId
 exports.createHouse = async (req, res, next) => {
   try {
-    // Extract new address fields from request body
-    const { name, address_line, secondary_line, city, state, zip_code } = req.body;
+    // Extract the fields from the request body
+    // Now only require name, city, state, zip_code, and creator_id
+    const { name, city, state, zip_code, creator_id } = req.body;
 
-    // Step 1: Create the house with initial data
+    // Create the house with the provided data and set the creator_id
     const house = await House.create({
       name,
-      address_line,
-      secondary_line,
       city,
       state,
       zip_code,
+      creator_id,
     });
+
+    // Optionally update the creator user's houseId here if desired:
+    // await User.update({ houseId: house.id }, { where: { id: creator_id } });
 
     res.status(201).json({
       message: 'House created successfully',
       house,
     });
-
-    // Step 2: Make the API call to fetch meter_id and utility_id
-    try {
-      const response = await axios.post('http://localhost:3000/api/v2/addresses/availability', {
-        address_line,
-        secondary_line,
-        city,
-        state,
-        zip_code,
-      });
-
-      const addressData = response.data?.results?.[0]; // Use optional chaining
-
-      if (addressData) {
-        const { meter_id, utility_id } = addressData;
-
-        // Step 3: Update the house with meter_id and utility_id
-        await house.update({ meter_id, utility_id });
-
-        console.log('House updated with meter_id and utility_id:', { meter_id, utility_id });
-      } else {
-        console.warn('No address data found in API response.');
-      }
-    } catch (apiError) {
-      console.error('Error fetching address availability:', apiError);
-    }
   } catch (error) {
     next(error);
   }
 };
 
-// Get all houses
+// Get all houses (including associated users)
 exports.getAllHouses = async (req, res, next) => {
   try {
     const houses = await House.findAll({ include: 'users' });
@@ -68,18 +45,16 @@ exports.getHouse = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Fetch house by ID with users and bills
     const house = await House.findByPk(id, {
       include: [
         {
           model: User,
-          as: 'users', // Alias defined in the model
+          as: 'users',
           attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],
         },
         {
           model: Bill,
-          as: 'bills', // Alias defined in the model
-          // Replace 'paid' with 'status' since the Bill model uses a status field
+          as: 'bills',
           attributes: ['id', 'name', 'amount', 'status', 'createdAt', 'updatedAt'],
         },
       ],
@@ -96,10 +71,10 @@ exports.getHouse = async (req, res, next) => {
   }
 };
 
-// Update a house
+// Update a house (only update name, city, state, and zip_code)
 exports.updateHouse = async (req, res, next) => {
   try {
-    const { name, address_line, secondary_line, city, state, zip_code } = req.body;
+    const { name, city, state, zip_code } = req.body;
 
     const house = await House.findByPk(req.params.id);
     if (!house) {
@@ -108,8 +83,6 @@ exports.updateHouse = async (req, res, next) => {
 
     await house.update({
       name,
-      address_line,
-      secondary_line,
       city,
       state,
       zip_code,

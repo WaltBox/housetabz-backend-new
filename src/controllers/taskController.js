@@ -87,6 +87,7 @@ const taskController = {
   async getTasksByUser(req, res) {
     try {
       const { userId } = req.params;
+      console.log(`Fetching tasks for user ${userId}`); // Debug log
       
       const tasks = await Task.findAll({ 
         where: { userId },
@@ -100,21 +101,24 @@ const taskController = {
         }],
         order: [['createdAt', 'DESC']]
       });
-
+    
+      // Explicitly set the status code first, then send the response
+      res.status(200);
+      
       if (!tasks.length) {
-        return res.status(404).json({ 
-          message: 'No tasks found for this user',
-          tasks: []
-        });
+        console.log(`No tasks found for user ${userId}, returning 200 with empty array`); // Debug log
+      } else {
+        console.log(`Found ${tasks.length} tasks for user ${userId}`); // Debug log
       }
-
-      res.status(200).json({
-        message: 'Tasks retrieved successfully',
-        tasks
+      
+      return res.json({
+        message: tasks.length ? 'Tasks retrieved successfully' : 'No tasks found for this user',
+        tasks: tasks || []
       });
+      
     } catch (error) {
       console.error('Error fetching tasks for user:', error);
-      res.status(500).json({ error: 'Failed to fetch tasks for user' });
+      return res.status(500).json({ error: 'Failed to fetch tasks for user' });
     }
   },
 

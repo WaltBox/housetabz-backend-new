@@ -25,12 +25,6 @@ const houseController = require('../controllers/houseController');
  *               name:
  *                 type: string
  *                 example: "House Alpha"
- *               address_line:
- *                 type: string
- *                 example: "123 Main St"
- *               secondary_line:
- *                 type: string
- *                 example: "Apt 4B"
  *               city:
  *                 type: string
  *                 example: "Austin"
@@ -40,6 +34,9 @@ const houseController = require('../controllers/houseController');
  *               zip_code:
  *                 type: string
  *                 example: "78701"
+ *               creator_id:
+ *                 type: integer
+ *                 example: 1
  *     responses:
  *       201:
  *         description: House created successfully
@@ -47,7 +44,6 @@ const houseController = require('../controllers/houseController');
  *         description: Bad request
  */
 router.post('/', houseController.createHouse);
-
 
 /**
  * @swagger
@@ -71,12 +67,6 @@ router.post('/', houseController.createHouse);
  *                   name:
  *                     type: string
  *                     example: "House Alpha"
- *                   address_line:
- *                     type: string
- *                     example: "123 Main St"
- *                   secondary_line:
- *                     type: string
- *                     example: "Apt 4B"
  *                   city:
  *                     type: string
  *                     example: "Austin"
@@ -86,6 +76,9 @@ router.post('/', houseController.createHouse);
  *                   zip_code:
  *                     type: string
  *                     example: "78701"
+ *                   creator_id:
+ *                     type: integer
+ *                     example: 1
  */
 router.get('/', houseController.getAllHouses);
 
@@ -93,7 +86,7 @@ router.get('/', houseController.getAllHouses);
  * @swagger
  * /houses/{id}:
  *   get:
- *     summary: Get a house by ID with associated users
+ *     summary: Get a house by ID with associated users and bills
  *     tags: [Houses]
  *     parameters:
  *       - in: path
@@ -104,7 +97,7 @@ router.get('/', houseController.getAllHouses);
  *         description: The house ID
  *     responses:
  *       200:
- *         description: House details with associated users
+ *         description: House details with associated users and bills
  *         content:
  *           application/json:
  *             schema:
@@ -116,12 +109,6 @@ router.get('/', houseController.getAllHouses);
  *                 name:
  *                   type: string
  *                   example: "House Alpha"
- *                 address_line:
- *                   type: string
- *                   example: "123 Main St"
- *                 secondary_line:
- *                   type: string
- *                   example: "Apt 4B"
  *                 city:
  *                   type: string
  *                   example: "Austin"
@@ -131,6 +118,9 @@ router.get('/', houseController.getAllHouses);
  *                 zip_code:
  *                   type: string
  *                   example: "78701"
+ *                 creator_id:
+ *                   type: integer
+ *                   example: 1
  *                 users:
  *                   type: array
  *                   items:
@@ -154,6 +144,23 @@ router.get('/', houseController.getAllHouses);
  *                       credit:
  *                         type: integer
  *                         example: 10
+ *                 bills:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                         example: 1
+ *                       name:
+ *                         type: string
+ *                         example: "Electric Bill"
+ *                       amount:
+ *                         type: number
+ *                         example: 120.50
+ *                       status:
+ *                         type: string
+ *                         example: "paid"
  *       404:
  *         description: House not found
  */
@@ -182,12 +189,6 @@ router.get('/:id', houseController.getHouse);
  *               name:
  *                 type: string
  *                 example: "House Beta"
- *               address_line:
- *                 type: string
- *                 example: "456 Elm St"
- *               secondary_line:
- *                 type: string
- *                 example: "Apt 10C"
  *               city:
  *                 type: string
  *                 example: "Dallas"

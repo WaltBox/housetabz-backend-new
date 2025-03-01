@@ -22,11 +22,6 @@ const billService = {
           type: 'fixed_recurring',
           createDay: currentDay
         },
-        include: [{
-          model: User,
-          as: 'designatedUser',
-          attributes: ['id', 'username', 'email']
-        }]
       });
       
       console.log(`Found ${services.length} fixed recurring services for bill generation`);

@@ -1,25 +1,23 @@
-const axios = require('axios');
+// src/models/house.js
 const { Model, DataTypes } = require('sequelize');
 
-module.exports = (sequelize) => {
-  class House extends Model {
-  
+function generateHouseCode(length = 6) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
+  return code;
+}
 
-  // Initialize the House model with relevant fields and validations
+module.exports = (sequelize) => {
+  class House extends Model {}
+
   House.init(
     {
       name: {
         type: DataTypes.STRING,
         allowNull: false,
-      },
-      address_line: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-      secondary_line: {
-        type: DataTypes.STRING,
-        allowNull: true,
       },
       city: {
         type: DataTypes.STRING,
@@ -29,7 +27,7 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         allowNull: false,
         validate: {
-          is: /^[A-Z]{2}$/, // Validate as two-letter state code
+          is: /^[A-Z]{2}$/,
         },
       },
       zip_code: {
@@ -51,37 +49,40 @@ module.exports = (sequelize) => {
         },
         set(value) {
           this.setDataValue('balance', parseFloat(value || 0).toFixed(2));
-        }
+        },
       },
       ledger: {
         type: DataTypes.INTEGER,
         allowNull: false,
         defaultValue: 0,
       },
-      meter_id: {
-        type: DataTypes.STRING,
-        allowNull: true, // Allow null initially
+      creator_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
       },
-      utility_id: {
+      house_code: {
         type: DataTypes.STRING,
-        allowNull: true, // Allow null initially
+        allowNull: false,
+        unique: true,
+        defaultValue: () => generateHouseCode(), // Auto-generate the code
       },
     },
     {
       sequelize,
       modelName: 'House',
+      hooks: {
+        beforeCreate: (house) => {
+          if (!house.house_code) {
+            house.house_code = generateHouseCode();
+          }
+        },
+      },
     }
   );
 
-  // Hook to run after a house is created
-  // House.afterCreate(async (house) => {
-  //   console.log('House created. Now attempting to update with API data...');
-
-  // });
-
   House.associate = (models) => {
-    House.hasMany(models.User, { foreignKey: 'houseId', as: 'users' }); // Associate House with Users
-    House.hasMany(models.Bill, { foreignKey: 'houseId', as: 'bills' }); // Associate House with Bills
+    House.hasMany(models.User, { foreignKey: 'houseId', as: 'users' });
+    House.hasMany(models.Bill, { foreignKey: 'houseId', as: 'bills' });
   };
 
   return House;

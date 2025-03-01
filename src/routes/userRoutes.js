@@ -54,5 +54,6 @@ router.post(
 router.put('/:id', userController.updateUser);
 router.delete('/:id', userController.deleteUser);
 router.put('/:id/house', updateUserHouse);
+router.put('/:id/join-house', userController.joinHouse);
 
 module.exports = router;

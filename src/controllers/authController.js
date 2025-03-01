@@ -2,6 +2,7 @@
 const { User, House } = require('../models');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { Op } = require('sequelize'); // Import Sequelize operators
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -23,68 +24,67 @@ const validateEmail = (email) => {
 };
 
 const authController = {
-   // src/controllers/authController.js
-async login(req, res) {
-  try {
-    const { email, password } = req.body;
-    console.log('Login attempt received:', { email });
+  async login(req, res) {
+    try {
+      const { email, password } = req.body;
+      console.log('Login attempt received:', { email });
 
-    // Find user
-    const user = await User.findOne({ 
-      where: { email },
-      include: [{
-        model: House,
-        as: 'house',
-        required: false
-      }]
-    });
+      // Find user
+      const user = await User.findOne({ 
+        where: { email },
+        include: [{
+          model: House,
+          as: 'house',
+          required: false
+        }]
+      });
 
-    if (!user) {
-      console.log('User not found');
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Verify password
-    const isValidPassword = await user.comparePassword(password);
-    console.log('Password validation result:', isValidPassword);
-
-    if (!isValidPassword) {
-      console.log('Invalid password');
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Generate token
-    const token = jwt.sign(
-      { id: user.id, email: user.email },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // Log the response structure
-    const response = {
-      success: true,
-      token,
-      data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          houseId: user.houseId,
-          house: user.house,
-          balance: user.balance,
-          points: user.points,
-          credit: user.credit
-        }
+      if (!user) {
+        console.log('User not found');
+        return res.status(401).json({ message: 'Invalid credentials' });
       }
-    };
-    console.log('Sending response:', response);
 
-    res.json(response);
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'An error occurred during login' });
-  }
-},
+      // Verify password
+      const isValidPassword = await user.comparePassword(password);
+      console.log('Password validation result:', isValidPassword);
+
+      if (!isValidPassword) {
+        console.log('Invalid password');
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      // Generate token
+      const token = jwt.sign(
+        { id: user.id, email: user.email },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      // Log the response structure
+      const response = {
+        success: true,
+        token,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            houseId: user.houseId,
+            house: user.house,
+            balance: user.balance,
+            points: user.points,
+            credit: user.credit
+          }
+        }
+      };
+      console.log('Sending response:', response);
+
+      res.json(response);
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ message: 'An error occurred during login' });
+    }
+  },
 
   async register(req, res) {
     console.log('Registration attempt received');
@@ -117,10 +117,10 @@ async login(req, res) {
         });
       }
 
-      // Check existing user
+      // Check existing user using the imported Op operator
       const existingUser = await User.findOne({
         where: {
-          [User.sequelize.Op.or]: [{ email }, { username }]
+          [Op.or]: [{ email }, { username }]
         }
       });
 
@@ -132,7 +132,7 @@ async login(req, res) {
         });
       }
 
-      // Create user
+      // Create user (password hashing is handled by model hooks)
       const user = await User.create({
         username,
         email,
@@ -140,23 +140,23 @@ async login(req, res) {
       });
 
       // Generate token
-      const token = createToken(user);
+    // Generate token
+const token = createToken(user);
+console.log('Generated token:', token); // Debug log
 
-      console.log('Registration successful:', { userId: user.id, email: user.email });
+res.status(201).json({
+  success: true,
+  message: 'Registration successful',
+  data: {
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username
+    },
+    token
+  }
+});
 
-      // Return success response
-      res.status(201).json({
-        success: true,
-        message: 'Registration successful',
-        data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            username: user.username
-          },
-          token
-        }
-      });
     } catch (error) {
       console.error('Registration error:', error);
       res.status(500).json({

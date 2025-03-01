@@ -153,3 +153,41 @@ exports.updateUserHouse = async (req, res) => {
     res.status(500).json({ message: 'Error updating houseId', error });
   }
 };
+
+// In src/controllers/userController.js
+exports.joinHouse = async (req, res, next) => {
+  try {
+    const { house_code } = req.body;
+    const userId = req.params.id;
+
+    if (!house_code) {
+      return res.status(400).json({ message: 'House code is required' });
+    }
+
+    // Find house by house_code
+    const house = await require('../models').House.findOne({ where: { house_code } });
+    if (!house) {
+      return res.status(404).json({ message: 'House not found with that code' });
+    }
+
+    // Update user's houseId
+    const user = await require('../models').User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.houseId = house.id;
+    await user.save();
+
+    res.json({
+      message: 'Joined house successfully',
+      user: {
+        id: user.id,
+        houseId: user.houseId,
+      },
+    });
+  } catch (error) {
+    console.error('Error joining house:', error);
+    next(error);
+  }
+};
