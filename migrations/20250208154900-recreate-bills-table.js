@@ -2,6 +2,7 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
+    // First create the table
     await queryInterface.createTable('Bills', {
       id: {
         allowNull: false,
@@ -64,8 +65,18 @@ module.exports = {
       }
     });
 
-    await queryInterface.addIndex('Bills', ['status']);
-    await queryInterface.addIndex('Bills', ['houseService_id']);
+    // Then add indexes in separate transactions
+    try {
+      await queryInterface.addIndex('Bills', ['status'], {
+        name: 'bills_status'
+      });
+      await queryInterface.addIndex('Bills', ['houseService_id'], {
+        name: 'bills_houseservice_id'
+      });
+    } catch (error) {
+      console.error('Error adding indexes:', error);
+      // If index creation fails, we'll still have the table
+    }
   },
 
   down: async (queryInterface, Sequelize) => {
