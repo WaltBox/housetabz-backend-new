@@ -47,6 +47,6 @@ module.exports = {
 
 // NODE_ENV=development_local node src/app.js start script for development_local
 // zip -r app.zip . -x node_modules/\* .env
-
+// zip -r app.zip . -x "*.git*" "node_modules/*" ".env"
 // npx sequelize-cli db:migrate --env development_local
 // npx sequelize-cli migration:generate --name add-idempotency-key-to-payments.js

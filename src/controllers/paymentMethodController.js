@@ -55,15 +55,25 @@ exports.completeSetupIntent = async (req, res) => {
 exports.getPaymentMethods = async (req, res) => {
   try {
     const paymentMethods = await stripeService.getPaymentMethods(req.user.id);
-    res.json({ paymentMethods });
+    if (!paymentMethods || paymentMethods.length === 0) {
+      return res.status(200).json({ message: 'You need a card on file' });
+    }
+    return res.json({ paymentMethods });
   } catch (error) {
+    // Check if the error has a response with status 401 (unauthorized from Stripe)
+    if (error.response && error.response.status === 401) {
+      return res.status(200).json({ message: 'You need a card on file' });
+    }
+    // Otherwise, log and return a 500 error.
     logger.error('Error getting payment methods:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to get payment methods',
       message: error.message
     });
   }
 };
+
+
 
 exports.setDefaultPaymentMethod = async (req, res) => {
   try {

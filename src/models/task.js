@@ -44,6 +44,20 @@ module.exports = (sequelize, DataTypes) => {
         }
       }
     },
+    monthlyAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      comment: 'Monthly share amount for recurring services',
+      get() {
+        const value = this.getDataValue('monthlyAmount');
+        return value === null ? null : Number(value);
+      },
+      set(value) {
+        if (value !== null) {
+          this.setDataValue('monthlyAmount', Number(value).toFixed(2));
+        }
+      }
+    },
     paymentStatus: {
       type: DataTypes.ENUM('not_required', 'pending', 'completed'),
       defaultValue: 'not_required'

@@ -97,6 +97,10 @@ const takeOverRequestController = {
       const totalRoommates = allRoommates.length;
       const individualPaymentAmount = requiredUpfrontPayment ? 
         (requiredUpfrontPayment / totalRoommates).toFixed(2) : null;
+      
+      // Calculate individual monthly payment for fixed services
+      const individualMonthlyAmount = isFixedService && monthlyAmount ? 
+        (parseFloat(monthlyAmount) / totalRoommates).toFixed(2) : null;
   
       // Create tasks for all roommates
       const tasks = allRoommates.map((roommate) => {
@@ -111,8 +115,16 @@ const takeOverRequestController = {
           response: isCreator ? 'accepted' : 'pending',
           paymentRequired,
           paymentAmount: individualPaymentAmount,
+          monthlyAmount: individualMonthlyAmount, // Add monthly amount to each task
           paymentStatus: paymentRequired ? 'pending' : 'not_required'
         };
+      });
+  
+      console.log('Creating tasks with monthly amount:', {
+        individualMonthlyAmount,
+        totalRoommates,
+        isFixedService,
+        totalMonthlyAmount: monthlyAmount
       });
   
       const createdTasks = await Task.bulkCreate(tasks);

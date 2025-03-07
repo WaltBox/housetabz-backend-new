@@ -2,8 +2,8 @@ const rateLimit = require('express-rate-limit');
 
 // Rate limiter configuration
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Increase to 100 requests per window if appropriate
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 750, // Increase to 100 requests per window if appropriate
   message: { message: 'Too many requests, please try again later.' },
 });
 

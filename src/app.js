@@ -40,28 +40,12 @@ const app = express();
 
 // Define CORS options
 const corsOptions = {
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      'https://www.housetabz.com',    
-      'http://localhost:3000',        
-      'http://127.0.0.1:3000',        
-      'http://localhost:3004',        
-      'http://localhost:3004/api-docs',
-      'http://localhost:8080',        // SDK testing
-      'housetabz.com',               // For confirm page
-      'https://housetabz.com',
-      'http://localhost:8081',
-      'http://localhost:3002'
-    ];
-
-    // Allow requests with no origin (like Stripe webhooks or Postman)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`Blocked request from unauthorized origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: [
+    'http://localhost:3000',
+    'https://www.housetabz.com',
+    'https://housetabz.com',
+    'com.housetabz.mobile://'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
@@ -70,12 +54,11 @@ const corsOptions = {
     'Origin', 
     'Accept',
     'Authorization',
-    'Stripe-Signature'  // Added for Stripe webhook signatures
+    'Stripe-Signature'
   ],
   credentials: true
 };
 
-// Apply CORS first
 app.use(cors(corsOptions));
 
 // Special handling for Stripe webhook endpoint
@@ -137,6 +120,7 @@ app.use((req, res, next) => {
   });
   next();
 });
+
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to HouseTabz Backend!' });
@@ -215,7 +199,8 @@ app.use((err, req, res, next) => {
     startBillSchedulers();
     console.log('Bill schedulers started');
 
-    const port = config.port;
+    // Use the PORT environment variable set by Elastic Beanstalk, or fall back to config.port or 8080
+    const port = process.env.PORT || config.port || 8080;
     app.listen(port, () => {
       console.log(`Server running in ${environment} mode on port ${port}`);
       console.log(`Swagger documentation available at: http://localhost:${port}/api-docs`);
