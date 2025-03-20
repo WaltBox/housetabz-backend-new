@@ -1,4 +1,4 @@
-const { WaitList, Referrer } = require('../models');  // Added Referrer import
+const { WaitList, Referrer, MemeQRCode } = require('../models');  // Added MemeQRCode import
 const sgMail = require('@sendgrid/mail');
 const { createWelcomeEmail } = require('../utils/emailTemplates');
 
@@ -29,7 +29,7 @@ const sendWelcomeEmail = async (recipientName, recipientEmail) => {
 exports.addToWaitList = async (req, res) => {
   try {
     console.log('Received waitlist request:', req.body);
-    const { name, phone, email, city, referrerId } = req.body;
+    const { name, phone, email, city, referrerId, qrId } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email || !city) {
@@ -37,13 +37,14 @@ exports.addToWaitList = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    // Create the waitlist entry without checking referrer first
+    // Create the waitlist entry with attribution to either referrer or meme QR code
     const waitListEntry = await WaitList.create({
       name,
       phone,
       email,
       city,
-      referrerId: referrerId || null  // Simplified referrer handling
+      referrerId: referrerId || null,
+      memeQRCodeId: qrId || null
     });
 
     console.log('Waitlist entry created:', waitListEntry.toJSON());
@@ -87,6 +88,10 @@ exports.getWaitList = async (req, res) => {
   try {
     const waitList = await WaitList.findAll({
       order: [['createdAt', 'DESC']],
+      include: [
+        { model: Referrer, as: 'referrer', attributes: ['id', 'name'] },
+        { model: MemeQRCode, as: 'memeQRCode', attributes: ['id', 'city', 'memeId'] }
+      ]
     });
     res.status(200).json(waitList);
   } catch (error) {
@@ -99,7 +104,12 @@ exports.getWaitList = async (req, res) => {
 exports.getWaitListEntryById = async (req, res) => {
   try {
     const { id } = req.params;
-    const waitListEntry = await WaitList.findByPk(id);
+    const waitListEntry = await WaitList.findByPk(id, {
+      include: [
+        { model: Referrer, as: 'referrer', attributes: ['id', 'name'] },
+        { model: MemeQRCode, as: 'memeQRCode', attributes: ['id', 'city', 'memeId'] }
+      ]
+    });
 
     if (!waitListEntry) {
       return res.status(404).json({ message: 'Waitlist entry not found.' });

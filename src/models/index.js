@@ -17,11 +17,17 @@ const models = {};
 
 // Dynamically load models
 fs.readdirSync(__dirname)
-  .filter((file) => file !== 'index.js')
-  .forEach((file) => {
-    const model = require(path.join(__dirname, file))(sequelize, DataTypes);
-    models[model.name] = model;
+  .filter(file => file.endsWith('.js') && file !== 'index.js')
+  .forEach(file => {
+    const modelDefiner = require(path.join(__dirname, file));
+    if (typeof modelDefiner !== 'function') {
+      console.error(`${file} did not export a function!`);
+    } else {
+      const model = modelDefiner(sequelize, DataTypes);
+      models[model.name] = model;
+    }
   });
+
 
 // Setup model associations
 Object.values(models).forEach((model) => {

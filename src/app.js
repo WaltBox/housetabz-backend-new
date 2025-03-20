@@ -34,7 +34,7 @@ const paymentMethodRoutes = require('./routes/paymentMethodRoutes');
 const authRoutes = require('./routes/authRoutes');
 const virtualCardRequestRoutes = require('./routes/virtualCardRequestRoutes');
 const takeOverRequestRoutes = require('./routes/takeOverRequestRoutes');
-
+const memeQRCodeRoutes = require('./routes/memeQRCodeRoutes'); // Import the new routes file
 // Initialize Express app
 const app = express();
 
@@ -44,6 +44,7 @@ const corsOptions = {
     'http://localhost:3000',
     'https://www.housetabz.com',
     'https://housetabz.com',
+    'https://f932-2605-a601-a0c6-4f00-254d-d042-938f-f537.ngrok-free.app/cleaning-test.html',
     'com.housetabz.mobile://'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -110,7 +111,7 @@ app.use('/confirm-request', confirmRequestRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/virtual-card-requests', virtualCardRequestRoutes);
 app.use('/api/take-over-requests', takeOverRequestRoutes);
-
+app.use('/api/meme-qr-codes', memeQRCodeRoutes);
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {

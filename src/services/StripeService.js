@@ -1,5 +1,17 @@
-// src/services/StripeService.js
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Load environment variables from .env (ensure you have 'dotenv' installed)
+require('dotenv').config();
+
+// Ensure the Stripe secret key is provided
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  console.error("Error: STRIPE_SECRET_KEY environment variable is not set.");
+  throw new Error("STRIPE_SECRET_KEY is required.");
+}
+
+// Log a masked version of the key for debugging purposes
+console.log("Initializing Stripe with key:", stripeSecretKey.slice(0, 8) + "..." );
+
+const stripe = require('stripe')(stripeSecretKey);
 const { StripeCustomer, PaymentMethod, User } = require('../models');
 
 class StripeService {
@@ -12,6 +24,7 @@ class StripeService {
       });
 
       if (stripeCustomer) {
+        console.log(`Found existing Stripe customer for user ${userId}`);
         return stripeCustomer;
       }
 
@@ -21,14 +34,13 @@ class StripeService {
         throw new Error('User not found');
       }
 
+      console.log(`Creating new Stripe customer for user ${user.id} with email ${user.email}`);
       const customer = await stripe.customers.create({
         email: user.email,
-        metadata: {
-          userId: user.id
-        }
+        metadata: { userId: user.id }
       });
 
-      // Save customer record
+      // Save customer record in the database
       stripeCustomer = await StripeCustomer.create({
         userId: user.id,
         stripeCustomerId: customer.id
@@ -41,69 +53,51 @@ class StripeService {
     }
   }
 
-  // Fix for the type mismatch in StripeService.js processPayment method
-// Updated processPayment method for StripeService.js
-// Final updated processPayment method for StripeService.js
-async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
-  try {
-    const stripeCustomer = await this.getOrCreateCustomer(userId);
+  async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
+    try {
+      const stripeCustomer = await this.getOrCreateCustomer(userId);
+      const stripePaymentMethodId = String(paymentMethodId);
+      let selectedPaymentMethod;
 
-    // Convert paymentMethodId to string if it's not already
-    const stripePaymentMethodId = String(paymentMethodId);
-    
-    // Find the payment method in our database
-    let selectedPaymentMethod;
-    
-    // If it looks like a Stripe payment method ID (pm_*), use it directly
-    if (stripePaymentMethodId.startsWith('pm_')) {
-      selectedPaymentMethod = stripePaymentMethodId;
-    } else {
-      // Otherwise, find it in our database
-      const dbPaymentMethod = await PaymentMethod.findOne({
-        where: { 
-          userId,
-          id: parseInt(stripePaymentMethodId, 10)
+      if (stripePaymentMethodId.startsWith('pm_')) {
+        selectedPaymentMethod = stripePaymentMethodId;
+      } else {
+        const dbPaymentMethod = await PaymentMethod.findOne({
+          where: { userId, id: parseInt(stripePaymentMethodId, 10) }
+        });
+        if (!dbPaymentMethod) {
+          throw new Error('Payment method not found or unauthorized');
         }
-      });
-      
-      if (!dbPaymentMethod) {
-        throw new Error('Payment method not found or unauthorized');
+        selectedPaymentMethod = dbPaymentMethod.stripePaymentMethodId;
       }
-      
-      selectedPaymentMethod = dbPaymentMethod.stripePaymentMethodId;
+
+      console.log(`Processing payment for user ${userId}: amount ${amount} USD using payment method ${selectedPaymentMethod}`);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Convert dollars to cents
+        currency: 'usd',
+        customer: stripeCustomer.stripeCustomerId,
+        payment_method: selectedPaymentMethod,
+        confirm: true,
+        metadata,
+        off_session: true,
+        payment_method_types: ['card']
+      }, { idempotencyKey });
+
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      throw error;
     }
-
-    // Create payment intent with idempotency
-    // Note: Removed error_on_requires_action parameter
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: 'usd',
-      customer: stripeCustomer.stripeCustomerId,
-      payment_method: selectedPaymentMethod,
-      confirm: true, // Automatically confirm the payment
-      metadata,
-      off_session: true, // Since we're charging a saved payment method
-      // REMOVED: error_on_requires_action: true
-      payment_method_types: ['card'] // Added to specify payment method types
-    }, {
-      idempotencyKey // Stripe's idempotency key
-    });
-
-    return paymentIntent;
-  } catch (error) {
-    console.error('Error processing payment:', error);
-    throw error;
   }
-}
+
   async createSetupIntent(userId) {
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);
-
+      console.log(`Creating setup intent for user ${userId}`);
       const setupIntent = await stripe.setupIntents.create({
         customer: stripeCustomer.stripeCustomerId,
         payment_method_types: ['card']
       });
-
       return setupIntent;
     } catch (error) {
       console.error('Error creating setup intent:', error);
@@ -114,15 +108,11 @@ async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyK
   async getPaymentMethods(userId) {
     try {
       await this.getOrCreateCustomer(userId);
-      
       const paymentMethods = await PaymentMethod.findAll({
         where: { userId },
-        order: [
-          ['isDefault', 'DESC'],
-          ['createdAt', 'DESC']
-        ]
+        order: [['isDefault', 'DESC'], ['createdAt', 'DESC']]
       });
-
+      console.log(`Retrieved ${paymentMethods.length} payment methods for user ${userId}`);
       return paymentMethods;
     } catch (error) {
       console.error('Error getting payment methods:', error);
@@ -132,23 +122,16 @@ async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyK
 
   async addPaymentMethod(userId, paymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
-  
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);
-  
-      // Check if this will be the first payment method BEFORE creating
-      const existingMethods = await PaymentMethod.count({
-        where: { userId }
-      });
-  
-      // Attach payment method to customer in Stripe
+      const existingMethods = await PaymentMethod.count({ where: { userId } });
+
+      console.log(`Attaching payment method ${paymentMethodId} for user ${userId}`);
       const paymentMethod = await stripe.paymentMethods.attach(paymentMethodId, {
         customer: stripeCustomer.stripeCustomerId
       });
-  
+
       const { card } = paymentMethod;
-  
-      // Save payment method - isDefault is true if no existing methods
       const savedPaymentMethod = await PaymentMethod.create({
         userId,
         stripeCustomerId: stripeCustomer.id,
@@ -156,53 +139,39 @@ async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyK
         type: paymentMethod.type,
         last4: card.last4,
         brand: card.brand,
-        isDefault: existingMethods === 0  // Set default if it's the first one
+        isDefault: existingMethods === 0
       }, { transaction });
-  
+
       await transaction.commit();
       return savedPaymentMethod;
     } catch (error) {
       await transaction.rollback();
+      console.error('Error adding payment method:', error);
       throw error;
     }
   }
 
   async setDefaultPaymentMethod(userId, paymentMethodId, transaction) {
     const t = transaction || await StripeCustomer.sequelize.transaction();
-
     try {
       const paymentMethod = await PaymentMethod.findOne({
         where: { id: paymentMethodId, userId }
       });
-
       if (!paymentMethod) {
         throw new Error('Payment method not found');
       }
-
       const stripeCustomer = await this.getOrCreateCustomer(userId);
-
-      // Update in Stripe
+      console.log(`Setting default payment method for user ${userId} to ${paymentMethodId}`);
       await stripe.customers.update(stripeCustomer.stripeCustomerId, {
-        invoice_settings: {
-          default_payment_method: paymentMethod.stripePaymentMethodId
-        }
+        invoice_settings: { default_payment_method: paymentMethod.stripePaymentMethodId }
       });
 
-      // Update in database
-      await PaymentMethod.update(
-        { isDefault: false },
-        { where: { userId }, transaction: t }
-      );
-
-      await PaymentMethod.update(
-        { isDefault: true },
-        { where: { id: paymentMethodId }, transaction: t }
-      );
+      await PaymentMethod.update({ isDefault: false }, { where: { userId }, transaction: t });
+      await PaymentMethod.update({ isDefault: true }, { where: { id: paymentMethodId }, transaction: t });
 
       if (!transaction) {
         await t.commit();
       }
-
       return paymentMethod;
     } catch (error) {
       if (!transaction) {
@@ -215,26 +184,18 @@ async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyK
 
   async removePaymentMethod(userId, paymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
-
     try {
-      const paymentMethod = await PaymentMethod.findOne({
-        where: { id: paymentMethodId, userId }
-      });
-
+      const paymentMethod = await PaymentMethod.findOne({ where: { id: paymentMethodId, userId } });
       if (!paymentMethod) {
         throw new Error('Payment method not found');
       }
-
-      // Detach from Stripe
+      console.log(`Removing payment method ${paymentMethodId} for user ${userId}`);
       await stripe.paymentMethods.detach(paymentMethod.stripePaymentMethodId);
-
-      // Remove from database
       await paymentMethod.destroy({ transaction });
-
       await transaction.commit();
     } catch (error) {
       await transaction.rollback();
-      console.error('Error in removePaymentMethod:', error);
+      console.error('Error removing payment method:', error);
       throw error;
     }
   }
@@ -252,33 +213,26 @@ async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyK
   async createPaymentMethodFromSetupIntent(userId, stripePaymentMethodId) {
     const transaction = await StripeCustomer.sequelize.transaction();
     try {
-      // Check for existing methods FIRST
-      const existingMethods = await PaymentMethod.count({
-        where: { userId }
-      });
-  
+      const existingMethods = await PaymentMethod.count({ where: { userId } });
       const paymentMethod = await stripe.paymentMethods.retrieve(stripePaymentMethodId);
       const { card } = paymentMethod;
-  
-      // Create with isDefault based on existingMethods count
       const savedPaymentMethod = await PaymentMethod.create({
         userId,
         stripePaymentMethodId: paymentMethod.id,
         type: paymentMethod.type,
         last4: card.last4,
         brand: card.brand,
-        isDefault: existingMethods === 0  // Set default if it's the first one
+        isDefault: existingMethods === 0
       }, { transaction });
-  
       await transaction.commit();
       return savedPaymentMethod;
     } catch (error) {
       await transaction.rollback();
+      console.error('Error creating payment method from setup intent:', error);
       throw error;
     }
   }
 }
 
-// Create an instance and export it
 const stripeService = new StripeService();
 module.exports = stripeService;
