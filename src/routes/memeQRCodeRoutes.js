@@ -55,18 +55,6 @@ router.post('/', memeQRCodeController.createMemeQRCode);
  */
 router.get('/', memeQRCodeController.getAllMemeQRCodes);
 
-/**
- * @swagger
- * /meme-qr-codes/metrics:
- *   get:
- *     summary: Get performance metrics for all meme QR codes
- *     tags: [MemeQRCodes]
- *     responses:
- *       200:
- *         description: Performance metrics for meme QR codes
- */
-// IMPORTANT: /metrics route must come BEFORE /:id route
-router.get('/metrics', memeQRCodeController.getMemeQRCodeMetrics);
 
 /**
  * @swagger

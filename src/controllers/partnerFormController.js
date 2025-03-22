@@ -3,19 +3,17 @@ const { PartnerForm } = require('../models');
 // Add a new partner form entry
 exports.addPartnerForm = async (req, res) => {
   try {
-    const { businessEmail, phoneNumber, businessWebsite, city, state, country } = req.body;
+    const { businessName, contactName, phoneNumber, email } = req.body;
 
-    if (!businessEmail || !phoneNumber || !businessWebsite || !city || !state || !country) {
+    if (!businessName || !contactName || !phoneNumber || !email) {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
     const partnerFormEntry = await PartnerForm.create({
-      businessEmail,
+      businessName,
+      contactName,
       phoneNumber,
-      businessWebsite,
-      city,
-      state,
-      country,
+      email,
     });
 
     res.status(201).json({

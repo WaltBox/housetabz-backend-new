@@ -9,34 +9,26 @@ const partnerFormController = require('../controllers/partnerFormController');
  *     PartnerForm:
  *       type: object
  *       required:
- *         - businessEmail
+ *         - businessName
+ *         - contactName
  *         - phoneNumber
- *         - businessWebsite
- *         - city
- *         - state
- *         - country
+ *         - email
  *       properties:
  *         id:
  *           type: integer
  *           description: Unique identifier for the partner form entry
- *         businessEmail:
+ *         businessName:
  *           type: string
- *           description: Business email address
+ *           description: Name of the business
+ *         contactName:
+ *           type: string
+ *           description: Name of the contact person
  *         phoneNumber:
  *           type: string
  *           description: Business phone number
- *         businessWebsite:
+ *         email:
  *           type: string
- *           description: URL of the business website
- *         city:
- *           type: string
- *           description: City of the business
- *         state:
- *           type: string
- *           description: State of the business
- *         country:
- *           type: string
- *           description: Country of the business
+ *           description: Email address for contact
  *         createdAt:
  *           type: string
  *           format: date-time
