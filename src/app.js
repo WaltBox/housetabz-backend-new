@@ -8,7 +8,10 @@ const swaggerSpec = require('./swaggerConfig');
 
 // Load environment and configuration
 const environment = process.env.NODE_ENV || 'development';
-const config = require('./config/config'); // Import configuration for current environment
+
+const fullConfig = require('./config/config');
+const config = fullConfig[environment]; // 👈 This gets development_local, etc.
+
 const { limiter, blockPaths } = require('./middleware/requestLimiter');
 
 const { sequelize } = require('./models'); // Import Sequelize instance
@@ -45,7 +48,9 @@ const corsOptions = {
     'https://www.housetabz.com',
     'https://housetabz.com',
     'https://f932-2605-a601-a0c6-4f00-254d-d042-938f-f537.ngrok-free.app/cleaning-test.html',
-    'com.housetabz.mobile://'
+    'com.housetabz.mobile://',
+    'http://localhost:3001',
+    'https://bf47-2605-a601-a0c6-4f00-dba-dbb2-eddb-4289.ngrok-free.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
@@ -210,7 +215,8 @@ app.use((err, req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('Unable to start the server:', error.message);
+    console.error('Unable to start the server:', error);
+
     process.exit(1); // Exit if there's a fatal error
   }
 })();
