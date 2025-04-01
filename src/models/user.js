@@ -28,31 +28,17 @@ module.exports = (sequelize, DataTypes) => {
     houseId: {
       type: DataTypes.INTEGER,
       allowNull: true,
-    },
-    balance: {
-      type: DataTypes.FLOAT,
-      allowNull: false,
-      defaultValue: 0.0,
-    },
-    points: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-    },
-    credit: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
     }
+    // Financial fields have been removed and moved to UserFinance model
   });
 
+  // Password hashing hooks remain the same
   User.beforeCreate(async (user) => {
     if (user.password) {
       user.password = await bcrypt.hash(user.password, 8);
     }
   });
 
-  // Fixed: Make comparePassword async and properly handle the promise
   User.prototype.comparePassword = async function(candidatePassword) {
     if (!this.password) return false;
     try {
@@ -67,8 +53,12 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.Charge, { foreignKey: 'userId', as: 'charges' });
     User.belongsTo(models.House, { foreignKey: 'houseId', as: 'house' });
     User.hasMany(models.Task, { foreignKey: 'userId', as: 'tasks' });
-    
     User.hasOne(models.StripeCustomer, { foreignKey: 'userId', as: 'stripeCustomer' });
+    
+    // New association to UserFinance
+    User.hasOne(models.UserFinance, { foreignKey: 'userId', as: 'finance' });
+    // New association to Transaction
+    User.hasMany(models.Transaction, { foreignKey: 'userId', as: 'transactions' });
   };
 
   return User;

@@ -61,7 +61,7 @@ exports.getAllUsers = async (req, res, next) => {
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
-      attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit'],
+      attributes: ['id', 'username', 'email', 'houseId'],
       include: [
         {
           model: House,
@@ -71,18 +71,12 @@ exports.getUser = async (req, res, next) => {
         {
           model: Charge,
           as: 'charges',
-          attributes: ['id', 'amount', 'status', 'billId', 'name'],
-          include: [
-            {
-              model: require('../models').Bill,
-              attributes: ['id', 'name']
-            }
-          ]
+          attributes: ['id', 'amount', 'status', 'billId', 'name']
         },
         {
-          model: Task,
-          as: 'tasks',
-          attributes: ['id', 'type', 'status', 'response', 'createdAt', 'updatedAt']
+          model: UserFinance,  // Include the finance data
+          as: 'finance',
+          attributes: ['balance', 'credit', 'points']
         }
       ]
     });

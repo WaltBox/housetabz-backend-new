@@ -1,9 +1,23 @@
 // src/controllers/billController.js
-const { Bill, Charge, User, House, HouseService, Notification, HouseStatusIndex } = require('../models');
+const { 
+  Bill, 
+  Charge, 
+  User, 
+  House, 
+  HouseService, 
+  Notification, 
+  HouseStatusIndex,
+  UserFinance,
+  HouseFinance,
+  sequelize 
+} = require('../models');
 const billService = require('../services/billService');
 const hsiService = require('../services/hsiService');
-
+const financeService = require('../services/financeService'); // Import the finance service
 const { Op } = require('sequelize');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('bill-controller');
 
 exports.createBill = async (req, res, next) => {
   try {
@@ -22,83 +36,109 @@ exports.createBill = async (req, res, next) => {
     // Use feeCategory from HouseService to determine the service fee
     const serviceFee = await hsiService.getServiceFee(houseId, houseService.feeCategory);
 
-    // Create the Bill using the information from HouseService and other data
-    const bill = await Bill.create({
-      houseId,
-      amount: parseFloat(amount),
-      houseService_id: houseServiceId,
-      name: houseService.name,
-      status: 'pending',
-      billType: billType || 'regular',
-      dueDate: dueDate ? new Date(dueDate) : null
-    });
+    // Start a transaction for all operations
+    const transaction = await sequelize.transaction();
 
-    // Calculate each user's portion and add the service fee
-    const users = await User.findAll({ where: { houseId } });
-    const numberOfUsers = users.length;
-    const baseChargeAmount = parseFloat(amount) / numberOfUsers;
+    try {
+      // Create the Bill using the information from HouseService and other data
+      const bill = await Bill.create({
+        houseId,
+        amount: parseFloat(amount),
+        houseService_id: houseServiceId,
+        name: houseService.name,
+        status: 'pending',
+        billType: billType || 'regular',
+        dueDate: dueDate ? new Date(dueDate) : null
+      }, { transaction });
 
-    const charges = users.map((user) => ({
-      userId: user.id,
-      baseAmount: baseChargeAmount,
-      serviceFee: serviceFee,
-      amount: baseChargeAmount + serviceFee,
-      status: 'unpaid',
-      billId: bill.id,
-      name: bill.name,
-      dueDate: bill.dueDate,
-      hsiAtTimeOfCharge: 50, // or use the current HSI if available
-      pointsPotential: 2,
-      metadata: {
-        billType,
-        baseServiceFee: houseService.feeCategory === 'card' ? 2.00 : 0.00,
-        adjustedServiceFee: serviceFee
-      }
-    }));
-
-    const createdCharges = await Charge.bulkCreate(charges);
-
-    const notifications = createdCharges.map((charge) => ({
-      userId: charge.userId,
-      message: `Hey user, you have a new charge of $${Number(charge.amount).toFixed(2)} for ${charge.name}.`,
-      metadata: {
-        type: 'new_charge',
-        chargeId: charge.id,
-        billId: bill.id,
-        amount: Number(charge.amount)
-      }
-    }));
-
-    await Notification.bulkCreate(notifications);
-
-    for (const user of users) {
-      // Option 1: Use baseChargeAmount + serviceFee
-      user.balance = (parseFloat(user.balance || 0) + (baseChargeAmount + serviceFee)).toFixed(2);
-      await user.save();
+      // Calculate each user's portion and add the service fee
+      const users = await User.findAll({ 
+        where: { houseId },
+        transaction
+      });
       
-      // OR Option 2: Reference from created charges
-      // Get the charge for this user
-      const userCharge = createdCharges.find(charge => charge.userId === user.id);
-      if (userCharge) {
-        user.balance = (parseFloat(user.balance || 0) + Number(userCharge.amount)).toFixed(2);
-        await user.save();
+      const numberOfUsers = users.length;
+      const baseChargeAmount = parseFloat(amount) / numberOfUsers;
+
+      const charges = users.map((user) => ({
+        userId: user.id,
+        baseAmount: baseChargeAmount,
+        serviceFee: serviceFee,
+        amount: baseChargeAmount + serviceFee,
+        status: 'unpaid',
+        billId: bill.id,
+        name: bill.name,
+        dueDate: bill.dueDate,
+        hsiAtTimeOfCharge: 50, // or use the current HSI if available
+        pointsPotential: 2,
+        metadata: {
+          billType,
+          baseServiceFee: houseService.feeCategory === 'card' ? 2.00 : 0.00,
+          adjustedServiceFee: serviceFee
+        }
+      }));
+
+      const createdCharges = await Charge.bulkCreate(charges, { transaction });
+
+      const notifications = createdCharges.map((charge) => ({
+        userId: charge.userId,
+        message: `Hey user, you have a new charge of $${Number(charge.amount).toFixed(2)} for ${charge.name}.`,
+        metadata: {
+          type: 'new_charge',
+          chargeId: charge.id,
+          billId: bill.id,
+          amount: Number(charge.amount)
+        }
+      }));
+
+      await Notification.bulkCreate(notifications, { transaction });
+
+      // Update user balances using the finance service
+      for (const user of users) {
+        const userCharge = createdCharges.find(charge => charge.userId === user.id);
+        if (userCharge) {
+          await financeService.addUserCharge(
+            user.id,
+            userCharge.amount,
+            `New charge for ${bill.name}`,
+            transaction,
+            {
+              billId: bill.id,
+              chargeId: userCharge.id,
+              billType: billType || 'regular'
+            }
+          );
+        }
       }
-    }
 
-    const house = await House.findByPk(houseId);
-    if (house && house.balance !== undefined) {
-      const newBalance = parseFloat(house.balance || 0) + parseFloat(amount);
-      house.balance = newBalance; // The setter will handle the formatting
-      await house.save();
-    }
+      // Update house balance using the finance service
+      await financeService.updateHouseBalance(
+        houseId,
+        parseFloat(amount),
+        'CHARGE',
+        `New bill: ${bill.name}`,
+        transaction,
+        {
+          billId: bill.id,
+          billType: billType || 'regular',
+          serviceId: houseServiceId
+        }
+      );
 
-    res.status(201).json({
-      message: 'Bill, charges, and notifications created successfully',
-      bill,
-      charges: createdCharges
-    });
+      await transaction.commit();
+
+      res.status(201).json({
+        message: 'Bill, charges, and notifications created successfully',
+        bill,
+        charges: createdCharges
+      });
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('Error in transaction:', error);
+      throw error;
+    }
   } catch (error) {
-    console.error('Error creating bill:', error);
+    logger.error('Error creating bill:', error);
     next(error);
   }
 };
@@ -141,9 +181,17 @@ exports.getBillsForHouse = async (req, res, next) => {
       order: [['createdAt', 'DESC']]
     });
 
-    res.status(200).json(bills);
+    // Get the house finance info to include the balance
+    const houseFinance = await HouseFinance.findOne({
+      where: { houseId }
+    });
+
+    res.status(200).json({
+      bills,
+      houseBalance: houseFinance ? houseFinance.balance : 0
+    });
   } catch (error) {
-    console.error('Error fetching bills for house:', error);
+    logger.error('Error fetching bills for house:', error);
     next(error);
   }
 };
@@ -190,7 +238,7 @@ exports.getBillForHouse = async (req, res, next) => {
 
     res.status(200).json(bill);
   } catch (error) {
-    console.error('Error fetching bill for house:', error);
+    logger.error('Error fetching bill for house:', error);
     next(error);
   }
 };
@@ -218,12 +266,12 @@ exports.generateFixedBills = async (req, res, next) => {
           results.push({
             serviceId: service.id,
             serviceName: service.name,
-            billId: billResult?.bill?.id || null, // Add null checks here
+            billId: billResult?.bill?.id || null,
             amount: billResult?.bill?.amount || null,
             success: true
           });
         } catch (error) {
-          console.error(`Error creating bill for service ${service.id}:`, error);
+          logger.error(`Error creating bill for service ${service.id}:`, error);
           results.push({
             serviceId: service.id,
             serviceName: service.name,
@@ -243,7 +291,7 @@ exports.generateFixedBills = async (req, res, next) => {
     
     res.status(200).json(result);
   } catch (error) {
-    console.error('Error generating fixed bills:', error);
+    logger.error('Error generating fixed bills:', error);
     res.status(500).json({ 
       error: 'Failed to generate fixed bills',
       details: error.message
@@ -281,7 +329,7 @@ exports.submitVariableBillAmount = async (req, res) => {
       dueDate.setMonth(dueDate.getMonth() + 1);
     }
 
-    const transaction = await require('../models').sequelize.transaction();
+    const transaction = await sequelize.transaction();
     
     try {
       const bill = await Bill.create({
@@ -314,6 +362,8 @@ exports.submitVariableBillAmount = async (req, res) => {
       const chargeData = users.map((user) => ({
         userId: user.id,
         billId: bill.id,
+        baseAmount: chargeAmount,
+        serviceFee: 0, // Could calculate service fee here if needed
         amount: chargeAmount,
         name: service.name,
         status: 'pending',
@@ -336,10 +386,37 @@ exports.submitVariableBillAmount = async (req, res) => {
       
       await Notification.bulkCreate(notificationData, { transaction });
       
+      // Update user balances using the finance service
       for (const user of users) {
-        user.balance = (parseFloat(user.balance) + parseFloat(chargeAmount)).toFixed(2);
-        await user.save({ transaction });
+        const userCharge = createdCharges.find(charge => charge.userId === user.id);
+        if (userCharge) {
+          await financeService.addUserCharge(
+            user.id,
+            chargeAmount,
+            `Variable charge for ${service.name}`,
+            transaction,
+            {
+              billId: bill.id,
+              chargeId: userCharge.id,
+              billType: 'variable_recurring'
+            }
+          );
+        }
       }
+      
+      // Update house balance using the finance service
+      await financeService.updateHouseBalance(
+        service.houseId,
+        parseFloat(amount),
+        'CHARGE',
+        `Variable bill: ${service.name}`,
+        transaction,
+        {
+          billId: bill.id,
+          billType: 'variable_recurring',
+          serviceId: service.id
+        }
+      );
       
       await transaction.commit();
       
@@ -353,7 +430,7 @@ exports.submitVariableBillAmount = async (req, res) => {
       throw error;
     }
   } catch (error) {
-    console.error('Error submitting variable bill amount:', error);
+    logger.error('Error submitting variable bill amount:', error);
     res.status(500).json({ 
       error: 'Failed to submit variable bill amount',
       details: error.message
@@ -413,7 +490,7 @@ exports.getUserVariableServices = async (req, res) => {
       services: servicesWithBillStatus
     });
   } catch (error) {
-    console.error('Error fetching user variable services:', error);
+    logger.error('Error fetching user variable services:', error);
     res.status(500).json({ 
       error: 'Failed to fetch variable services',
       details: error.message
@@ -426,7 +503,7 @@ exports.generateVariableReminders = async (req, res) => {
     const result = await billService.generateVariableServiceReminders();
     res.status(200).json(result);
   } catch (error) {
-    console.error('Error generating variable service reminders:', error);
+    logger.error('Error generating variable service reminders:', error);
     res.status(500).json({ 
       error: 'Failed to generate variable service reminders',
       details: error.message

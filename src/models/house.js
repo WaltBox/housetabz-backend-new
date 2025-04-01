@@ -34,28 +34,7 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         allowNull: false,
       },
-      hsi: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
-      balance: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: false,
-        defaultValue: 0.00,
-        get() {
-          const value = this.getDataValue('balance');
-          return value === null ? 0.00 : Number(value);
-        },
-        set(value) {
-          this.setDataValue('balance', parseFloat(value || 0).toFixed(2));
-        },
-      },
-      ledger: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 0,
-      },
+      // Financial fields removed (hsi, balance, ledger)
       creator_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -64,7 +43,7 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING,
         allowNull: false,
         unique: true,
-        defaultValue: () => generateHouseCode(), // Auto-generate the code
+        defaultValue: () => generateHouseCode(),
       },
     },
     {
@@ -77,7 +56,7 @@ module.exports = (sequelize) => {
           }
         },
         afterCreate: async (house, options) => {
-          // Access the HouseStatusIndex model from the sequelize instance
+          // Create HouseStatusIndex
           const { HouseStatusIndex } = sequelize.models;
           if (HouseStatusIndex) {
             await HouseStatusIndex.create(
@@ -92,6 +71,19 @@ module.exports = (sequelize) => {
               { transaction: options.transaction }
             );
           }
+          
+          // Create HouseFinance
+          const { HouseFinance } = sequelize.models;
+          if (HouseFinance) {
+            await HouseFinance.create(
+              {
+                houseId: house.id,
+                balance: 0.00,
+                ledger: 0.00,
+              },
+              { transaction: options.transaction }
+            );
+          }
         },
       },
     }
@@ -100,6 +92,12 @@ module.exports = (sequelize) => {
   House.associate = (models) => {
     House.hasMany(models.User, { foreignKey: 'houseId', as: 'users' });
     House.hasMany(models.Bill, { foreignKey: 'houseId', as: 'bills' });
+    House.hasOne(models.HouseStatusIndex, { foreignKey: 'houseId', as: 'statusIndex' });
+    
+    // New association to HouseFinance
+    House.hasOne(models.HouseFinance, { foreignKey: 'houseId', as: 'finance' });
+    // New association to Transaction
+    House.hasMany(models.Transaction, { foreignKey: 'houseId', as: 'transactions' });
   };
 
   return House;

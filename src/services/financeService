@@ -1,0 +1,517 @@
+// src/services/financeService.js
+const { UserFinance, HouseFinance, Transaction, User, House, sequelize } = require('../models');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('finance-service');
+
+class FinanceService {
+  /**
+   * Add a charge to a user's balance
+   */
+  async addUserCharge(userId, amount, description, transaction = null, metadata = {}) {
+    const t = transaction || await sequelize.transaction();
+    try {
+      // Get or create user finance record
+      let userFinance = await UserFinance.findOne({ 
+        where: { userId },
+        transaction: t
+      });
+      
+      if (!userFinance) {
+        userFinance = await UserFinance.create({
+          userId,
+          balance: 0,
+          credit: 0,
+          points: 0
+        }, { transaction: t });
+      }
+      
+      // Record the balance before the change
+      const balanceBefore = parseFloat(userFinance.balance);
+      
+      // Update the balance
+      userFinance.balance = (balanceBefore + parseFloat(amount)).toFixed(2);
+      userFinance.lastTransactionDate = new Date();
+      await userFinance.save({ transaction: t });
+      
+      // Extract billId and chargeId from metadata
+      const billId = metadata.billId || null;
+      const chargeId = metadata.chargeId || null;
+      const paymentId = metadata.paymentId || null;
+      
+      // Create a transaction record with proper relationships
+      const txn = await Transaction.create({
+        userId,
+        type: 'CHARGE',
+        amount: parseFloat(amount).toFixed(2),
+        description,
+        balanceBefore: balanceBefore.toFixed(2),
+        balanceAfter: userFinance.balance,
+        status: 'COMPLETED',
+        billId,
+        chargeId,
+        paymentId,
+        metadata
+      }, { transaction: t });
+      
+      // If this wasn't called with an existing transaction, commit it
+      if (!transaction) {
+        await t.commit();
+      }
+      
+      return txn;
+    } catch (error) {
+      // Only rollback if we started the transaction
+      if (!transaction) {
+        await t.rollback();
+      }
+      logger.error('Error adding user charge:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Process a payment from a user (reduces their balance)
+   */
+  async processUserPayment(userId, amount, description, transaction = null, metadata = {}) {
+    const t = transaction || await sequelize.transaction();
+    try {
+      // Get user finance record
+      const userFinance = await UserFinance.findOne({ 
+        where: { userId },
+        transaction: t
+      });
+      
+      if (!userFinance) {
+        throw new Error(`User finance record not found for user ${userId}`);
+      }
+      
+      // Record the balance before the change
+      const balanceBefore = parseFloat(userFinance.balance);
+      
+      // Update the balance (subtract payment amount)
+      userFinance.balance = (balanceBefore - parseFloat(amount)).toFixed(2);
+      userFinance.lastTransactionDate = new Date();
+      await userFinance.save({ transaction: t });
+      
+      // Extract billId, chargeId, and paymentId from metadata
+      const billId = metadata.billId || null;
+      const chargeId = metadata.chargeId || null;
+      const paymentId = metadata.paymentId || null;
+      
+      // Create a transaction record with proper relationships
+      const txn = await Transaction.create({
+        userId,
+        type: 'PAYMENT',
+        amount: parseFloat(amount).toFixed(2),
+        description,
+        balanceBefore: balanceBefore.toFixed(2),
+        balanceAfter: userFinance.balance,
+        status: 'COMPLETED',
+        billId,
+        chargeId,
+        paymentId,
+        metadata
+      }, { transaction: t });
+      
+      // If this wasn't called with an existing transaction, commit it
+      if (!transaction) {
+        await t.commit();
+      }
+      
+      return txn;
+    } catch (error) {
+      // Only rollback if we started the transaction
+      if (!transaction) {
+        await t.rollback();
+      }
+      logger.error('Error processing user payment:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Update a house's balance
+   */
+  async updateHouseBalance(houseId, amount, type, description, transaction = null, metadata = {}) {
+    const t = transaction || await sequelize.transaction();
+    try {
+      // Get or create house finance record
+      let houseFinance = await HouseFinance.findOne({ 
+        where: { houseId },
+        transaction: t
+      });
+      
+      if (!houseFinance) {
+        houseFinance = await HouseFinance.create({
+          houseId,
+          balance: 0,
+          ledger: 0
+        }, { transaction: t });
+      }
+      
+      // Record the balance before the change
+      const balanceBefore = parseFloat(houseFinance.balance);
+      
+      // Update the balance based on the transaction type
+      const parsedAmount = parseFloat(amount);
+      if (type === 'CHARGE') {
+        // Adding a charge increases the house balance
+        houseFinance.balance = (balanceBefore + parsedAmount).toFixed(2);
+      } else if (type === 'PAYMENT') {
+        // A payment decreases the house balance
+        houseFinance.balance = (balanceBefore - parsedAmount).toFixed(2);
+      } else {
+        // For other types, use the sign of the amount to determine add/subtract
+        houseFinance.balance = (balanceBefore + parsedAmount).toFixed(2);
+      }
+      
+      // Update the ledger (always adds to the running total)
+      houseFinance.ledger = (parseFloat(houseFinance.ledger) + Math.abs(parsedAmount)).toFixed(2);
+      houseFinance.lastTransactionDate = new Date();
+      
+      await houseFinance.save({ transaction: t });
+      
+      // Extract billId from metadata
+      const billId = metadata.billId || null;
+      const paymentId = metadata.paymentId || null;
+      
+      // Create a transaction record with proper relationships
+      const txn = await Transaction.create({
+        houseId,
+        type,
+        amount: parsedAmount.toFixed(2),
+        description,
+        balanceBefore: balanceBefore.toFixed(2),
+        balanceAfter: houseFinance.balance,
+        status: 'COMPLETED',
+        billId,
+        paymentId,
+        metadata
+      }, { transaction: t });
+      
+      // If this wasn't called with an existing transaction, commit it
+      if (!transaction) {
+        await t.commit();
+      }
+      
+      return txn;
+    } catch (error) {
+      // Only rollback if we started the transaction
+      if (!transaction) {
+        await t.rollback();
+      }
+      logger.error('Error updating house balance:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Transfer balance from one user to another
+   * @param {number} fromUserId - User ID to transfer from
+   * @param {number} toUserId - User ID to transfer to
+   * @param {number} amount - Amount to transfer
+   * @param {string} description - Description of the transfer
+   * @param {Object} metadata - Additional data to store with the transaction
+   * @returns {Promise<Object>} - Object containing both transactions
+   */
+  async transferBetweenUsers(fromUserId, toUserId, amount, description, metadata = {}) {
+    const t = await sequelize.transaction();
+    try {
+      // Process the outgoing transaction (subtract from sender)
+      const outgoingTxn = await this.processUserPayment(
+        fromUserId, 
+        amount, 
+        `Transfer to user #${toUserId}: ${description}`, 
+        t,
+        { ...metadata, transferType: 'outgoing', toUserId }
+      );
+      
+      // Process the incoming transaction (add to receiver)
+      const incomingTxn = await this.addUserCharge(
+        toUserId, 
+        amount, 
+        `Transfer from user #${fromUserId}: ${description}`, 
+        t,
+        { ...metadata, transferType: 'incoming', fromUserId }
+      );
+      
+      // Link the two transactions
+      await outgoingTxn.update({ 
+        relatedTransactionId: incomingTxn.id,
+        type: 'TRANSFER' 
+      }, { transaction: t });
+      
+      await incomingTxn.update({ 
+        relatedTransactionId: outgoingTxn.id,
+        type: 'TRANSFER' 
+      }, { transaction: t });
+      
+      await t.commit();
+      
+      return {
+        outgoing: outgoingTxn,
+        incoming: incomingTxn
+      };
+    } catch (error) {
+      await t.rollback();
+      logger.error('Error transferring between users:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Apply credits to a user's account
+   * @param {number} userId - User ID
+   * @param {number} amount - Credit amount to apply
+   * @param {string} description - Reason for credit
+   * @param {Object} metadata - Additional data
+   * @returns {Promise<Object>} - Transaction record
+   */
+  async applyUserCredit(userId, amount, description, metadata = {}) {
+    const t = await sequelize.transaction();
+    try {
+      const userFinance = await UserFinance.findOne({ 
+        where: { userId },
+        transaction: t
+      });
+      
+      if (!userFinance) {
+        throw new Error(`User finance record not found for user ${userId}`);
+      }
+      
+      // Record original values
+      const creditBefore = parseFloat(userFinance.credit);
+      
+      // Add to credit amount
+      userFinance.credit = (creditBefore + parseFloat(amount)).toFixed(2);
+      await userFinance.save({ transaction: t });
+      
+      // Create transaction record
+      const txn = await Transaction.create({
+        userId,
+        type: 'CREDIT',
+        amount: parseFloat(amount).toFixed(2),
+        description,
+        balanceBefore: creditBefore.toFixed(2),
+        balanceAfter: userFinance.credit,
+        status: 'COMPLETED',
+        metadata: {
+          ...metadata,
+          creditApplication: true
+        }
+      }, { transaction: t });
+      
+      await t.commit();
+      return txn;
+    } catch (error) {
+      await t.rollback();
+      logger.error('Error applying user credit:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Use credits from a user's account for a payment
+   * @param {number} userId - User ID
+   * @param {number} amount - Amount to use from credits
+   * @param {string} description - Payment description
+   * @param {Object} metadata - Additional data
+   * @returns {Promise<Object>} - Transaction record
+   */
+  async useUserCredit(userId, amount, description, metadata = {}) {
+    const t = await sequelize.transaction();
+    try {
+      const userFinance = await UserFinance.findOne({ 
+        where: { userId },
+        transaction: t
+      });
+      
+      if (!userFinance) {
+        throw new Error(`User finance record not found for user ${userId}`);
+      }
+      
+      const creditBalance = parseFloat(userFinance.credit);
+      const requestedAmount = parseFloat(amount);
+      
+      if (creditBalance < requestedAmount) {
+        throw new Error(`Insufficient credit. Available: ${creditBalance}, Requested: ${requestedAmount}`);
+      }
+      
+      // Record the credit before change
+      const creditBefore = creditBalance;
+      
+      // Reduce credit amount
+      userFinance.credit = (creditBefore - requestedAmount).toFixed(2);
+      await userFinance.save({ transaction: t });
+      
+      // Extract important IDs from metadata
+      const billId = metadata.billId || null;
+      const chargeId = metadata.chargeId || null;
+      
+      // Create transaction record
+      const txn = await Transaction.create({
+        userId,
+        type: 'CREDIT_USAGE',
+        amount: requestedAmount.toFixed(2),
+        description,
+        balanceBefore: creditBefore.toFixed(2),
+        balanceAfter: userFinance.credit,
+        status: 'COMPLETED',
+        billId,
+        chargeId,
+        metadata: {
+          ...metadata,
+          creditUsage: true
+        }
+      }, { transaction: t });
+      
+      await t.commit();
+      return txn;
+    } catch (error) {
+      await t.rollback();
+      logger.error('Error using user credit:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get current balance for a user
+   */
+  async getUserBalance(userId) {
+    try {
+      const finance = await UserFinance.findOne({ where: { userId } });
+      if (!finance) {
+        // If no finance record exists, return 0 balance
+        return 0.00;
+      }
+      return parseFloat(finance.balance);
+    } catch (error) {
+      logger.error('Error getting user balance:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get current credit for a user
+   */
+  async getUserCredit(userId) {
+    try {
+      const finance = await UserFinance.findOne({ where: { userId } });
+      if (!finance) {
+        // If no finance record exists, return 0 credit
+        return 0.00;
+      }
+      return parseFloat(finance.credit);
+    } catch (error) {
+      logger.error('Error getting user credit:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get current balance for a house
+   */
+  async getHouseBalance(houseId) {
+    try {
+      const finance = await HouseFinance.findOne({ where: { houseId } });
+      if (!finance) {
+        // If no finance record exists, return 0 balance
+        return 0.00;
+      }
+      return parseFloat(finance.balance);
+    } catch (error) {
+      logger.error('Error getting house balance:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get transaction history for a user
+   */
+  async getUserTransactions(userId, options = {}) {
+    const { limit = 50, offset = 0, startDate, endDate, type } = options;
+    
+    const whereClause = { userId };
+    
+    if (type) {
+      whereClause.type = type;
+    }
+    
+    if (startDate && endDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    } else if (startDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.gte]: new Date(startDate)
+      };
+    } else if (endDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.lte]: new Date(endDate)
+      };
+    }
+    
+    return Transaction.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: sequelize.models.Bill,
+          as: 'bill',
+          attributes: ['id', 'name', 'amount', 'status', 'billType']
+        },
+        {
+          model: sequelize.models.Charge,
+          as: 'charge',
+          attributes: ['id', 'name', 'amount', 'status']
+        }
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']]
+    });
+  }
+  
+  /**
+   * Get transaction history for a house
+   */
+  async getHouseTransactions(houseId, options = {}) {
+    const { limit = 50, offset = 0, startDate, endDate, type } = options;
+    
+    const whereClause = { houseId };
+    
+    if (type) {
+      whereClause.type = type;
+    }
+    
+    if (startDate && endDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    } else if (startDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.gte]: new Date(startDate)
+      };
+    } else if (endDate) {
+      whereClause.createdAt = {
+        [sequelize.Op.lte]: new Date(endDate)
+      };
+    }
+    
+    return Transaction.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: sequelize.models.Bill,
+          as: 'bill',
+          attributes: ['id', 'name', 'amount', 'status', 'billType']
+        }
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']]
+    });
+  }
+}
+
+module.exports = new FinanceService();
