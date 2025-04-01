@@ -1,11 +1,11 @@
 // src/controllers/paymentController.js
-const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House } = require('../models');
+const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House, UserFinance, HouseFinance } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
 const hsiService = require('../services/hsiService'); // NEW: Import HSI service for house updates
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
-
+const financeService = require('../services/financeService'); // Add this
 const logger = createLogger('payment-controller');
 
 // NEW: Calculate payment points based on charge due date
@@ -184,6 +184,13 @@ const paymentController = {
       const idempotencyKey = req.headers['idempotency-key'];
       const userId = req.user.id;
   
+      console.log("Payment request details:", {
+        userId,
+        chargeIds,
+        paymentMethodId,
+        idempotencyKey
+      });
+
       if (!idempotencyKey) {
         return res.status(400).json({ 
           error: 'Missing idempotency key',
@@ -264,17 +271,11 @@ const paymentController = {
           }, { transaction })
         ));
   
-        // NEW: For each charge, calculate payment points and update user points and charge metadata
+        // NEW: For each charge, calculate payment points 
         for (const charge of charges) {
           const pointsEarned = calculatePaymentPoints(charge);
-          const user = await User.findByPk(charge.userId, { transaction });
-          if (user) {
-            user.points = user.points + pointsEarned;
-            await user.save({ transaction });
-            if (user.houseId) {
-              await hsiService.updateHouseHSI(user.houseId, transaction);
-            }
-          }
+          
+          // Update the charge metadata
           await charge.update({
             metadata: {
               ...charge.metadata,
@@ -284,21 +285,63 @@ const paymentController = {
           }, { transaction });
         }
   
-        // Find the user to update their balance
-        const user = await User.findByPk(userId, { transaction });
+        // Get the user and their finance record
+        const user = await User.findByPk(userId, { 
+          include: [{ model: UserFinance, as: 'finance' }],
+          transaction 
+        });
+        
         if (user) {
-          // Update user balance by subtracting the payment amount
-          user.balance = (parseFloat(user.balance || 0) - parseFloat(totalAmount)).toFixed(2);
-          await user.save({ transaction });
-  
-          // If user belongs to a house, update house balance too
-          if (user.houseId) {
-            const house = await House.findByPk(user.houseId, { transaction });
-            if (house && house.balance !== undefined) {
-              // Update house balance
-              house.balance = (parseFloat(house.balance || 0) - parseFloat(totalAmount)).toFixed(2);
-              await house.save({ transaction });
+          // Get or create the user finance record
+          let userFinance = user.finance;
+          if (!userFinance) {
+            // If the user doesn't have a finance record yet, create one
+            userFinance = await UserFinance.create({
+              userId,
+              balance: user.balance || 0, // Use existing balance if available
+              credit: user.credit || 0,
+              points: user.points || 0
+            }, { transaction });
+          }
+          
+          // Update user's financial data using the finance service
+          await financeService.processUserPayment(
+            userId,
+            totalAmount,
+            'Batch payment for charges',
+            transaction,
+            {
+              paymentId: payment.id,
+              chargeIds: chargeIds.join(','),
+              stripePaymentIntentId: paymentIntent.id
             }
+          );
+          
+          // Update points in finance record
+          const totalPointsEarned = charges.reduce((sum, charge) => 
+            sum + calculatePaymentPoints(charge), 0);
+          userFinance.points += totalPointsEarned;
+          await userFinance.save({ transaction });
+  
+          // If user belongs to a house, update house balance
+          if (user.houseId) {
+            // Update house financial data using the finance service
+            await financeService.updateHouseBalance(
+              user.houseId,
+              totalAmount,
+              'PAYMENT',
+              'User payment for charges',
+              transaction,
+              {
+                userId,
+                paymentId: payment.id,
+                chargeIds: chargeIds.join(','),
+                stripePaymentIntentId: paymentIntent.id
+              }
+            );
+            
+            // Update HSI
+            await hsiService.updateHouseHSI(user.houseId, transaction);
           }
         }
   
@@ -334,13 +377,22 @@ const paymentController = {
         });
       }
     } catch (error) {
-      logger.error('Error processing batch payment:', error);
-      return res.status(500).json({ 
-        error: 'Failed to process batch payment',
-        details: error.message 
-      });
+    // Enhanced error logging
+    console.error('Error processing batch payment:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Log specific details that might help debug
+    if (error.response) {
+      console.error('Response data:', error.response.data);
     }
-  },
+    
+    return res.status(500).json({ 
+      error: 'Failed to process batch payment',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development_local' ? error.stack : undefined
+    });
+  }
+},
   
   async getPaymentStatus(req, res) {
     try {

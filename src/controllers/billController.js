@@ -36,6 +36,7 @@ exports.createBill = async (req, res, next) => {
     // Use feeCategory from HouseService to determine the service fee
     const serviceFee = await hsiService.getServiceFee(houseId, houseService.feeCategory);
 
+
     // Start a transaction for all operations
     const transaction = await sequelize.transaction();
 
@@ -60,6 +61,18 @@ exports.createBill = async (req, res, next) => {
       const numberOfUsers = users.length;
       const baseChargeAmount = parseFloat(amount) / numberOfUsers;
 
+      // Retrieve the current HouseStatusIndex for the house
+      // const houseHsi = await HouseStatusIndex.findOne({
+      //   where: { houseId },
+      //   order: [['updatedAt', 'DESC']]
+      // });
+
+      const houseStatus = await HouseStatusIndex.findOne({
+        where: { houseId },
+        order: [['updatedAt', 'DESC']]
+      });
+
+
       const charges = users.map((user) => ({
         userId: user.id,
         baseAmount: baseChargeAmount,
@@ -69,7 +82,7 @@ exports.createBill = async (req, res, next) => {
         billId: bill.id,
         name: bill.name,
         dueDate: bill.dueDate,
-        hsiAtTimeOfCharge: 50, // or use the current HSI if available
+        hsiAtTimeOfCharge: houseStatus ? houseStatus.score : 50, // use current HSI score
         pointsPotential: 2,
         metadata: {
           billType,
@@ -77,6 +90,7 @@ exports.createBill = async (req, res, next) => {
           adjustedServiceFee: serviceFee
         }
       }));
+
 
       const createdCharges = await Charge.bulkCreate(charges, { transaction });
 

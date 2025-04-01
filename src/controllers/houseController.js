@@ -1,5 +1,5 @@
 // src/controllers/houseController.js
-const { House, User, Bill } = require('../models');
+const { House, User, Bill, HouseFinance, HouseStatusIndex } = require('../models');
 const axios = require('axios'); // still available if needed for other calls
 
 // Create a new house and update the creator's houseId
@@ -43,28 +43,31 @@ exports.getAllHouses = async (req, res, next) => {
 // Get house by ID with associated users and bills
 exports.getHouse = async (req, res, next) => {
   try {
-    const { id } = req.params;
-
-    const house = await House.findByPk(id, {
+    const house = await House.findByPk(req.params.id, {
       include: [
         {
           model: User,
           as: 'users',
-          attributes: ['id', 'username', 'email', 'balance', 'points', 'credit'],
+          attributes: ['id', 'username', 'email']
         },
         {
-          model: Bill,
-          as: 'bills',
-          attributes: ['id', 'name', 'amount', 'status', 'createdAt', 'updatedAt'],
+          model: HouseStatusIndex,
+          as: 'statusIndex',
+          attributes: ['score', 'bracket', 'feeMultiplier', 'creditMultiplier']
         },
-      ],
+        {
+          model: HouseFinance,  // Include the finance data
+          as: 'finance',
+          attributes: ['balance', 'ledger', 'lastTransactionDate']
+        }
+      ]
     });
 
     if (!house) {
       return res.status(404).json({ message: 'House not found' });
     }
 
-    res.status(200).json(house);
+    res.json(house);
   } catch (error) {
     console.error('Error fetching house:', error);
     next(error);

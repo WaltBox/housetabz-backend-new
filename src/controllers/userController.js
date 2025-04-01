@@ -1,5 +1,5 @@
 // src/controllers/userController.js
-const { User, House, Charge, Task } = require('../models');
+const { User, House, Charge, Task, UserFinance} = require('../models');
 const { Op } = require('sequelize');  // Add this import
 
 // Create a new user
