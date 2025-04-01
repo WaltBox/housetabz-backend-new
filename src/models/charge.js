@@ -41,6 +41,28 @@ module.exports = (sequelize, DataTypes) => {
     metadata: {
       type: DataTypes.JSONB,
       defaultValue: {}
+    },
+    baseAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      comment: 'User portion of the bill before fees'
+    },
+    serviceFee: {
+      type: DataTypes.DECIMAL(6, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+      comment: 'HSI-adjusted service fee'
+    },
+    hsiAtTimeOfCharge: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'House HSI at time of charge creation'
+    },
+    pointsPotential: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 2,
+      comment: 'Potential points for on-time payment'
     }
   }, {
     indexes: [

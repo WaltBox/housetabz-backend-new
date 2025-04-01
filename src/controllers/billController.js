@@ -1,6 +1,8 @@
 // src/controllers/billController.js
-const { Bill, Charge, User, House, HouseService, Notification } = require('../models');
+const { Bill, Charge, User, House, HouseService, Notification, HouseStatusIndex } = require('../models');
 const billService = require('../services/billService');
+const hsiService = require('../services/hsiService');
+
 const { Op } = require('sequelize');
 
 exports.createBill = async (req, res, next) => {
@@ -17,6 +19,10 @@ exports.createBill = async (req, res, next) => {
       return res.status(404).json({ error: 'HouseService not found' });
     }
 
+    // Use feeCategory from HouseService to determine the service fee
+    const serviceFee = await hsiService.getServiceFee(houseId, houseService.feeCategory);
+
+    // Create the Bill using the information from HouseService and other data
     const bill = await Bill.create({
       houseId,
       amount: parseFloat(amount),
@@ -27,17 +33,27 @@ exports.createBill = async (req, res, next) => {
       dueDate: dueDate ? new Date(dueDate) : null
     });
 
+    // Calculate each user's portion and add the service fee
     const users = await User.findAll({ where: { houseId } });
     const numberOfUsers = users.length;
-    const chargeAmount = parseFloat(amount) / numberOfUsers;
+    const baseChargeAmount = parseFloat(amount) / numberOfUsers;
 
     const charges = users.map((user) => ({
       userId: user.id,
-      amount: chargeAmount,
-      status: 'pending',
+      baseAmount: baseChargeAmount,
+      serviceFee: serviceFee,
+      amount: baseChargeAmount + serviceFee,
+      status: 'unpaid',
       billId: bill.id,
       name: bill.name,
-      dueDate: bill.dueDate
+      dueDate: bill.dueDate,
+      hsiAtTimeOfCharge: 50, // or use the current HSI if available
+      pointsPotential: 2,
+      metadata: {
+        billType,
+        baseServiceFee: houseService.feeCategory === 'card' ? 2.00 : 0.00,
+        adjustedServiceFee: serviceFee
+      }
     }));
 
     const createdCharges = await Charge.bulkCreate(charges);
@@ -56,8 +72,17 @@ exports.createBill = async (req, res, next) => {
     await Notification.bulkCreate(notifications);
 
     for (const user of users) {
-      user.balance = (parseFloat(user.balance || 0) + chargeAmount).toFixed(2);
+      // Option 1: Use baseChargeAmount + serviceFee
+      user.balance = (parseFloat(user.balance || 0) + (baseChargeAmount + serviceFee)).toFixed(2);
       await user.save();
+      
+      // OR Option 2: Reference from created charges
+      // Get the charge for this user
+      const userCharge = createdCharges.find(charge => charge.userId === user.id);
+      if (userCharge) {
+        user.balance = (parseFloat(user.balance || 0) + Number(userCharge.amount)).toFixed(2);
+        await user.save();
+      }
     }
 
     const house = await House.findByPk(houseId);

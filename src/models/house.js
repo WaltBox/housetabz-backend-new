@@ -76,6 +76,23 @@ module.exports = (sequelize) => {
             house.house_code = generateHouseCode();
           }
         },
+        afterCreate: async (house, options) => {
+          // Access the HouseStatusIndex model from the sequelize instance
+          const { HouseStatusIndex } = sequelize.models;
+          if (HouseStatusIndex) {
+            await HouseStatusIndex.create(
+              {
+                houseId: house.id,
+                score: 50,
+                bracket: 5,
+                feeMultiplier: 1.0,
+                creditMultiplier: 1.0,
+                updatedReason: 'Initial default',
+              },
+              { transaction: options.transaction }
+            );
+          }
+        },
       },
     }
   );

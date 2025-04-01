@@ -2,10 +2,42 @@
 const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
+const hsiService = require('../services/hsiService'); // NEW: Import HSI service for house updates
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('payment-controller');
+
+// NEW: Calculate payment points based on charge due date
+const calculatePaymentPoints = (charge) => {
+  const now = new Date();
+  const dueDate = new Date(charge.dueDate);
+  
+  // Calculate days relative to due date
+  const daysDiff = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+  
+  // Early payment (3+ days before due date)
+  if (daysDiff <= -3) return 2;
+  
+  // On-time payment (before due date)
+  if (daysDiff < 0) return 1;
+  
+  // Grace period (within 3 days after due date)
+  if (daysDiff <= 3) return 0;
+  
+  // Late payment (4-7 days)
+  if (daysDiff <= 7) return -1;
+  
+  // Very late payment (8-14 days)
+  if (daysDiff <= 14) return -3;
+  
+  // After 14 days, escalate point deduction
+  const extraLateDays = daysDiff - 14;
+  const extraPenalty = Math.floor(extraLateDays / 2) + 1;
+  
+  // Cap at a maximum penalty
+  return Math.max(-15, -5 - extraPenalty);
+};
 
 const paymentController = {
   async processPayment(req, res) {
@@ -231,6 +263,26 @@ const paymentController = {
             paymentMethodId: String(paymentMethodId)
           }, { transaction })
         ));
+  
+        // NEW: For each charge, calculate payment points and update user points and charge metadata
+        for (const charge of charges) {
+          const pointsEarned = calculatePaymentPoints(charge);
+          const user = await User.findByPk(charge.userId, { transaction });
+          if (user) {
+            user.points = user.points + pointsEarned;
+            await user.save({ transaction });
+            if (user.houseId) {
+              await hsiService.updateHouseHSI(user.houseId, transaction);
+            }
+          }
+          await charge.update({
+            metadata: {
+              ...charge.metadata,
+              pointsEarned,
+              paidDate: new Date()
+            }
+          }, { transaction });
+        }
   
         // Find the user to update their balance
         const user = await User.findByPk(userId, { transaction });

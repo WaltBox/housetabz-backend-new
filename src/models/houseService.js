@@ -89,6 +89,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSONB,
       defaultValue: {},
       comment: 'Additional service-specific details'
+    },
+    feeCategory: {
+      type: DataTypes.ENUM('card', 'marketplace'),
+      allowNull: false,
+      defaultValue: 'marketplace',
+   
     }
   });
 
