@@ -214,7 +214,7 @@ const paymentController = {
         where: { 
           id: chargeIds,
           userId,
-          status: 'pending'
+          status: 'unpaid'
         }
       });
       if (charges.length !== chargeIds.length) {
@@ -341,7 +341,7 @@ const paymentController = {
             );
             
             // Update HSI
-            await hsiService.updateHouseHSI(user.houseId, transaction);
+            //await hsiService.updateHouseHSI(user.houseId, transaction);
           }
         }
   
