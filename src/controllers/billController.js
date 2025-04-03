@@ -33,18 +33,48 @@ exports.createBill = async (req, res, next) => {
       return res.status(404).json({ error: 'HouseService not found' });
     }
 
-    // Use feeCategory from HouseService to determine the service fee
-    const serviceFee = await hsiService.getServiceFee(houseId, houseService.feeCategory);
-
-
     // Start a transaction for all operations
     const transaction = await sequelize.transaction();
 
     try {
-      // Create the Bill using the information from HouseService and other data
+      // Get all users in the house to calculate fees
+      const users = await User.findAll({ 
+        where: { houseId },
+        transaction
+      });
+      
+      const numberOfUsers = users.length;
+      
+      // Get the base amount
+      const baseAmount = parseFloat(amount);
+      
+      // Retrieve the current HouseStatusIndex for the house
+      const houseStatus = await HouseStatusIndex.findOne({
+        where: { houseId },
+        order: [['updatedAt', 'DESC']]
+      }, { transaction });
+      
+      const hsiScore = houseStatus ? houseStatus.score : 50;
+      
+      // Calculate the base service fee per user based on fee category
+      const baseServiceFeeRate = houseService.feeCategory === 'card' ? 2.00 : 0.00;
+      const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
+      
+      // Use the existing HSI service to calculate the fee multiplier
+      const feeMultiplier = hsiService.calculateFeeMultiplier(hsiScore);
+      
+      // Calculate the total service fee with HSI adjustment
+      const totalServiceFee = parseFloat((totalBaseServiceFee * feeMultiplier).toFixed(2));
+      
+      // Calculate the total bill amount including service fees
+      const totalAmount = parseFloat((baseAmount + totalServiceFee).toFixed(2));
+      
+      // Create the Bill with both base amount and service fee
       const bill = await Bill.create({
         houseId,
-        amount: parseFloat(amount),
+        baseAmount: baseAmount,
+        serviceFeeTotal: totalServiceFee,
+        amount: totalAmount,
         houseService_id: houseServiceId,
         name: houseService.name,
         status: 'pending',
@@ -52,48 +82,33 @@ exports.createBill = async (req, res, next) => {
         dueDate: dueDate ? new Date(dueDate) : null
       }, { transaction });
 
-      // Calculate each user's portion and add the service fee
-      const users = await User.findAll({ 
-        where: { houseId },
-        transaction
-      });
-      
-      const numberOfUsers = users.length;
-      const baseChargeAmount = parseFloat(amount) / numberOfUsers;
+      // Calculate each user's portion
+      const baseChargeAmount = parseFloat((baseAmount / numberOfUsers).toFixed(2));
+      const chargeServiceFee = parseFloat((totalServiceFee / numberOfUsers).toFixed(2));
 
-      // Retrieve the current HouseStatusIndex for the house
-      // const houseHsi = await HouseStatusIndex.findOne({
-      //   where: { houseId },
-      //   order: [['updatedAt', 'DESC']]
-      // });
-
-      const houseStatus = await HouseStatusIndex.findOne({
-        where: { houseId },
-        order: [['updatedAt', 'DESC']]
-      });
-
-
+      // Create charges for each user
       const charges = users.map((user) => ({
         userId: user.id,
         baseAmount: baseChargeAmount,
-        serviceFee: serviceFee,
-        amount: baseChargeAmount + serviceFee,
+        serviceFee: chargeServiceFee,
+        amount: parseFloat((baseChargeAmount + chargeServiceFee).toFixed(2)),
         status: 'unpaid',
         billId: bill.id,
         name: bill.name,
         dueDate: bill.dueDate,
-        hsiAtTimeOfCharge: houseStatus ? houseStatus.score : 50, // use current HSI score
+        hsiAtTimeOfCharge: hsiScore,
         pointsPotential: 2,
         metadata: {
           billType,
-          baseServiceFee: houseService.feeCategory === 'card' ? 2.00 : 0.00,
-          adjustedServiceFee: serviceFee
+          baseServiceFee: baseServiceFeeRate,
+          adjustedServiceFee: chargeServiceFee,
+          feeMultiplier: feeMultiplier
         }
       }));
 
-
       const createdCharges = await Charge.bulkCreate(charges, { transaction });
 
+      // Create notifications for each charge
       const notifications = createdCharges.map((charge) => ({
         userId: charge.userId,
         message: `Hey user, you have a new charge of $${Number(charge.amount).toFixed(2)} for ${charge.name}.`,
@@ -125,10 +140,10 @@ exports.createBill = async (req, res, next) => {
         }
       }
 
-      // Update house balance using the finance service
+      // Update house balance using the finance service with the TOTAL amount
       await financeService.updateHouseBalance(
         houseId,
-        parseFloat(amount),
+        totalAmount, // Use the total amount including service fees
         'CHARGE',
         `New bill: ${bill.name}`,
         transaction,
@@ -346,9 +361,46 @@ exports.submitVariableBillAmount = async (req, res) => {
     const transaction = await sequelize.transaction();
     
     try {
+      // Get all users in the house
+      const users = await User.findAll({ 
+        where: { houseId: service.houseId },
+        transaction
+      });
+      
+      if (!users.length) {
+        throw new Error('No users found for this house');
+      }
+      
+      const numberOfUsers = users.length;
+      const baseAmount = parseFloat(amount);
+      
+      // Retrieve the current HouseStatusIndex for the house
+      const houseStatus = await HouseStatusIndex.findOne({
+        where: { houseId: service.houseId },
+        order: [['updatedAt', 'DESC']]
+      }, { transaction });
+      
+      const hsiScore = houseStatus ? houseStatus.score : 50;
+      
+      // Calculate the base service fee per user based on fee category
+      const baseServiceFeeRate = service.feeCategory === 'card' ? 2.00 : 0.00;
+      const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
+      
+      // Use the existing HSI service to calculate the fee multiplier
+      const feeMultiplier = hsiService.calculateFeeMultiplier(hsiScore);
+      
+      // Calculate the total service fee with HSI adjustment
+      const totalServiceFee = parseFloat((totalBaseServiceFee * feeMultiplier).toFixed(2));
+      
+      // Calculate the total bill amount including service fees
+      const totalAmount = parseFloat((baseAmount + totalServiceFee).toFixed(2));
+      
+      // Create the bill with the new structure
       const bill = await Bill.create({
         houseId: service.houseId,
-        amount,
+        baseAmount: baseAmount,
+        serviceFeeTotal: totalServiceFee,
+        amount: totalAmount,
         houseService_id: service.id,
         name: service.name,
         status: 'pending',
@@ -361,52 +413,53 @@ exports.submitVariableBillAmount = async (req, res) => {
         }
       }, { transaction });
       
-      const users = await User.findAll({ 
-        where: { houseId: service.houseId },
-        transaction
-      });
+      // Calculate each user's portion
+      const baseChargeAmount = parseFloat((baseAmount / numberOfUsers).toFixed(2));
+      const chargeServiceFee = parseFloat((totalServiceFee / numberOfUsers).toFixed(2));
       
-      if (!users.length) {
-        throw new Error('No users found for this house');
-      }
-      
-      const numberOfUsers = users.length;
-      const chargeAmount = amount / numberOfUsers;
-      
+      // Create charges for each user
       const chargeData = users.map((user) => ({
         userId: user.id,
         billId: bill.id,
-        baseAmount: chargeAmount,
-        serviceFee: 0, // Could calculate service fee here if needed
-        amount: chargeAmount,
+        baseAmount: baseChargeAmount,
+        serviceFee: chargeServiceFee,
+        amount: parseFloat((baseChargeAmount + chargeServiceFee).toFixed(2)),
         name: service.name,
         status: 'pending',
-        dueDate: bill.dueDate
+        dueDate: bill.dueDate,
+        hsiAtTimeOfCharge: hsiScore,
+        pointsPotential: 2,
+        metadata: {
+          baseServiceFee: baseServiceFeeRate,
+          adjustedServiceFee: chargeServiceFee,
+          feeMultiplier: feeMultiplier
+        }
       }));
       
       const createdCharges = await Charge.bulkCreate(chargeData, { transaction });
       
+      // Create notifications
       const notificationData = users.map((user) => ({
         userId: user.id,
-        message: `You have a new charge of $${chargeAmount.toFixed(2)} for ${service.name}.`,
+        message: `You have a new charge of $${(baseChargeAmount + chargeServiceFee).toFixed(2)} for ${service.name}.`,
         isRead: false,
         metadata: {
           type: 'new_charge',
           billId: bill.id,
           serviceId: service.id,
-          amount: chargeAmount
+          amount: baseChargeAmount + chargeServiceFee
         }
       }));
       
       await Notification.bulkCreate(notificationData, { transaction });
       
-      // Update user balances using the finance service
+      // Update user balances
       for (const user of users) {
         const userCharge = createdCharges.find(charge => charge.userId === user.id);
         if (userCharge) {
           await financeService.addUserCharge(
             user.id,
-            chargeAmount,
+            userCharge.amount,
             `Variable charge for ${service.name}`,
             transaction,
             {
@@ -418,10 +471,10 @@ exports.submitVariableBillAmount = async (req, res) => {
         }
       }
       
-      // Update house balance using the finance service
+      // Update house balance with total amount
       await financeService.updateHouseBalance(
         service.houseId,
-        parseFloat(amount),
+        totalAmount,
         'CHARGE',
         `Variable bill: ${service.name}`,
         transaction,
@@ -434,7 +487,7 @@ exports.submitVariableBillAmount = async (req, res) => {
       
       await transaction.commit();
       
-      res.status(201).json({
+      return res.status(201).json({
         message: 'Variable bill created successfully',
         bill,
         charges: createdCharges
@@ -452,6 +505,18 @@ exports.submitVariableBillAmount = async (req, res) => {
   }
 };
 
+exports.generateVariableReminders = async (req, res) => {
+  try {
+    const result = await billService.generateVariableServiceReminders();
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Error generating variable service reminders:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate variable service reminders',
+      details: error.message
+    });
+  }
+};
 exports.getUserVariableServices = async (req, res) => {
   try {
     const { userId } = req.query;
@@ -507,19 +572,6 @@ exports.getUserVariableServices = async (req, res) => {
     logger.error('Error fetching user variable services:', error);
     res.status(500).json({ 
       error: 'Failed to fetch variable services',
-      details: error.message
-    });
-  }
-};
-
-exports.generateVariableReminders = async (req, res) => {
-  try {
-    const result = await billService.generateVariableServiceReminders();
-    res.status(200).json(result);
-  } catch (error) {
-    logger.error('Error generating variable service reminders:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate variable service reminders',
       details: error.message
     });
   }

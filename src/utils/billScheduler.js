@@ -29,6 +29,28 @@ function startBillSchedulers() {
       console.error('Error in scheduled variable service reminders:', error);
     }
   });
+  
+  // Run bill submission request generation every day at 4 AM
+  cron.schedule('0 4 * * *', async () => {
+    console.log('Running scheduled variable bill submission request generation');
+    try {
+      const result = await billService.generateVariableBillSubmissionRequests();
+      console.log('Variable bill submission request generation complete:', result);
+    } catch (error) {
+      console.error('Error in scheduled variable bill submission request generation:', error);
+    }
+  });
+  
+  // Run bill submission reminders every day at 5 AM
+  cron.schedule('0 5 * * *', async () => {
+    console.log('Running scheduled bill submission reminders');
+    try {
+      const result = await billService.generateBillSubmissionReminders();
+      console.log('Bill submission reminders complete:', result);
+    } catch (error) {
+      console.error('Error in scheduled bill submission reminders:', error);
+    }
+  });
 
   console.log('Bill schedulers started');
 }
