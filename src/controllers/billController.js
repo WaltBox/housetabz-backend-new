@@ -18,56 +18,50 @@ const { createLogger } = require('../utils/logger');
 const logger = createLogger('bill-controller');
 
 exports.createBill = async (req, res, next) => {
+  const { houseId }       = req.params;
+  const { amount, houseServiceId, billType, dueDate } = req.body;
+
+  // Basic payload validation
+  if (!houseServiceId) {
+    return res.status(400).json({ error: 'houseServiceId is required' });
+  }
+  if (amount == null || isNaN(amount) || amount < 0) {
+    return res.status(400).json({ error: 'A valid amount is required' });
+  }
+
   try {
-    const { houseId } = req.params;
-    const { amount, houseServiceId, billType, dueDate } = req.body;
-
-    // Authorization check: Ensure user belongs to this house
-    if (req.user.houseId != houseId) {
-      return res.status(403).json({ error: 'Unauthorized access to house' });
-    }
-
-    if (!houseServiceId) {
-      return res.status(400).json({ error: 'houseServiceId is required' });
-    }
-
+    // Fetch and verify the service belongs to this house
     const houseService = await HouseService.findByPk(houseServiceId);
-    if (!houseService) {
-      return res.status(404).json({ error: 'HouseService not found' });
-    }
-
-    // Additional check to ensure service belongs to this house
-    if (houseService.houseId != houseId) {
-      return res.status(403).json({ error: 'Service does not belong to this house' });
+    if (!houseService || String(houseService.houseId) !== houseId) {
+      return res.status(404).json({ error: 'HouseService not found for this house' });
     }
 
     // Start a transaction
     const transaction = await sequelize.transaction();
-
     try {
-      // Use the centralized bill creation function
+      // Centralized creation logic
       const result = await billService.createBill({
-        service: houseService,
-        baseAmount: amount,
+        service:      houseService,
+        baseAmount:   amount,
         transaction,
-        customDueDate: dueDate ? new Date(dueDate) : null
+        customDueDate: dueDate ? new Date(dueDate) : null,
+        billType      // if your service supports custom types
       });
 
       await transaction.commit();
-
-      res.status(201).json({
+      return res.status(201).json({
         message: 'Bill, charges, and notifications created successfully',
-        bill: result.bill,
+        bill:    result.bill,
         charges: result.charges
       });
-    } catch (error) {
+    } catch (err) {
       await transaction.rollback();
-      logger.error('Error in transaction:', error);
-      throw error;
+      logger.error('Error in transaction:', err);
+      throw err;
     }
-  } catch (error) {
-    logger.error('Error creating bill:', error);
-    next(error);
+  } catch (err) {
+    logger.error('Error creating bill:', err);
+    next(err);
   }
 };
 

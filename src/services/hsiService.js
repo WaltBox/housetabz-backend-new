@@ -1,95 +1,87 @@
 // src/services/hsiService.js
-const { User, HouseStatusIndex, sequelize } = require('../models');
+const { User, UserFinance, HouseStatusIndex, sequelize } = require('../models');
+
+const SMOOTHING_ALPHA = 0.2;  // tune this between 0.1 and 0.3 for your desired reactivity
 
 const hsiService = {
   async updateHouseHSI(houseId, externalTransaction) {
-    // Use the provided transaction or create a new one if none was passed
     const transaction = externalTransaction || await sequelize.transaction();
-
     try {
-      // Retrieve all users for the given house
-      const users = await User.findAll({ 
+      // 1) Compute measured HSI from current points
+      const users = await User.findAll({
         where: { houseId },
+        include: [{ model: UserFinance, as: 'finance', attributes: ['points'] }],
         transaction
       });
-      
-      if (!users.length) return null;
+      if (!users.length) {
+        if (!externalTransaction) await transaction.commit();
+        return null;
+      }
 
-      // Calculate average user points and derive the new HSI score
-      const totalPoints = users.reduce((sum, user) => sum + user.points, 0);
+      const totalPoints = users.reduce((sum, u) => {
+        const p = u.finance?.points ?? 0;
+        return sum + p;
+      }, 0);
       const avgPoints = totalPoints / users.length;
-      const newHsiScore = Math.min(Math.max(Math.round(avgPoints + 50), 0), 100);
+      const measured  = Math.min(Math.max(Math.round(avgPoints + 50), 0), 100);
 
-      // Derive additional HSI attributes
-      const newBracket = Math.floor(newHsiScore / 10);
-      const feeMultiplier = this.calculateFeeMultiplier(newHsiScore);
-      const creditMultiplier = this.calculateCreditMultiplier(newHsiScore);
+      // 2) Load previous HSI (or default to measured if none)
+      let previousHsi = measured;
+      const existing = await HouseStatusIndex.findOne({
+        where: { houseId },
+        order: [['updatedAt', 'DESC']],
+        transaction
+      });
+      if (existing) previousHsi = existing.score;
 
-      // Find an existing HSI record or create a new one if it doesn't exist
+      // 3) EMA blend
+      let newHsi = Math.round(
+        SMOOTHING_ALPHA * measured +
+        (1 - SMOOTHING_ALPHA) * previousHsi
+      );
+      newHsi = Math.min(Math.max(newHsi, 0), 100);
+
+      // 4) Derive other attributes
+      const bracket        = Math.floor(newHsi / 10);
+      const feeMultiplier  = this.calculateFeeMultiplier(newHsi);
+      const creditMultiplier = this.calculateCreditMultiplier(newHsi);
+
+      // 5) Upsert HSI record
       const [hsi, created] = await HouseStatusIndex.findOrCreate({
         where: { houseId },
         defaults: {
-          score: newHsiScore,
-          bracket: newBracket,
+          score: newHsi,
+          bracket,
           feeMultiplier,
           creditMultiplier,
           updatedReason: 'Initial calculation'
         },
         transaction
       });
-      
-      // If the record already exists, update it
       if (!created) {
         await hsi.update({
-          score: newHsiScore,
-          bracket: newBracket,
+          score: newHsi,
+          bracket,
           feeMultiplier,
           creditMultiplier,
-          updatedReason: 'Regular update'
+          updatedReason: 'EMA update'
         }, { transaction });
       }
-      
-      // Commit the transaction only if we created it here
+
       if (!externalTransaction) await transaction.commit();
-      
       return hsi;
-    } catch (error) {
+    } catch (err) {
       if (!externalTransaction) await transaction.rollback();
-      throw error;
+      throw err;
     }
   },
-  
+
   calculateFeeMultiplier(hsiScore) {
-    // Example:
-    // HSI 100 = 0.8x (20% discount)
-    // HSI 50  = 1.0x (standard)
-    // HSI 0   = 1.2x (20% surcharge)
     return 1 + ((50 - hsiScore) / 250);
   },
-  
+
   calculateCreditMultiplier(hsiScore) {
-    // Example:
-    // HSI 100 = 2.0x (double credit)
-    // HSI 50  = 1.0x (standard credit)
-    // HSI 0   = 0.0x (no credit)
     return hsiScore / 50;
-  },
-  
-  async getServiceFee(houseId, feeCategory) {
-    // Determine the base fee based on the fee category from HouseService
-    const baseFee = feeCategory === 'card' ? 2.00 : 0.00;
-    
-    // Retrieve the most recent HSI for the house
-    const hsi = await HouseStatusIndex.findOne({
-      where: { houseId },
-      order: [['updatedAt', 'DESC']]
-    });
-    
-    // If no HSI record is found, default to the base fee
-    if (!hsi) return baseFee;
-    
-    // Calculate and return the adjusted fee using the HSI fee multiplier
-    return parseFloat((baseFee * hsi.feeMultiplier).toFixed(2));
   }
 };
 

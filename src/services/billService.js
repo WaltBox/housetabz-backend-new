@@ -660,4 +660,7 @@ const billService = {
   }
 };
 
-module.exports = billService;
+module.exports = {
+  createBill,                  // expose the core function
+  ...billService               // spread in the rest of your helpers
+};

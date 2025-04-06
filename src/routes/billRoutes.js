@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const billController = require('../controllers/billController');
+const {authenticateSystem} = require('../middleware/auth/systemAuth');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { catchAsync } = require('../middleware/errorHandler');
 
@@ -119,7 +120,7 @@ const { catchAsync } = require('../middleware/errorHandler');
  *       500:
  *         description: Server error
  */
-router.post('/:houseId/bills', authenticateUser, catchAsync(billController.createBill));
+router.post('/:houseId/bills', authenticateSystem, catchAsync(billController.createBill));
 
 /**
  * @swagger
@@ -229,7 +230,7 @@ router.get('/:houseId/bills/:billId', authenticateUser, catchAsync(billControlle
  *                       success:
  *                         type: boolean
  */
-router.post('/:houseId/generate-fixed-bills', authenticateUser, catchAsync(billController.generateFixedBills));
+router.post('/:houseId/generate-fixed-bills', authenticateSystem, catchAsync(billController.generateFixedBills));
 
 /**
  * @swagger
@@ -336,6 +337,6 @@ router.post('/services/:serviceId/submit-bill', authenticateUser, catchAsync(bil
  *                 failureCount:
  *                   type: integer
  */
-router.post('/generate-variable-reminders', authenticateUser, catchAsync(billController.generateVariableReminders));
+router.post('/generate-variable-reminders', authenticateSystem, catchAsync(billController.generateVariableReminders));
 
 module.exports = router;

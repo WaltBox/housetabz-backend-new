@@ -9,34 +9,15 @@ const financeService = require('../services/financeService');
 const logger = createLogger('payment-controller');
 
 // Calculate payment points based on charge due date
+
 const calculatePaymentPoints = (charge) => {
   const now = new Date();
   const dueDate = new Date(charge.dueDate);
-  
-  // Calculate days relative to due date
-  const daysDiff = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
-  
-  // Early payment (3+ days before due date)
-  if (daysDiff <= -3) return 2;
-  
-  // On-time payment (before due date)
-  if (daysDiff < 0) return 1;
-  
-  // Grace period (within 3 days after due date)
-  if (daysDiff <= 3) return 0;
-  
-  // Late payment (4-7 days)
-  if (daysDiff <= 7) return -1;
-  
-  // Very late payment (8-14 days)
-  if (daysDiff <= 14) return -3;
-  
-  // After 14 days, escalate point deduction
-  const extraLateDays = daysDiff - 14;
-  const extraPenalty = Math.floor(extraLateDays / 2) + 1;
-  
-  // Cap at a maximum penalty
-  return Math.max(-15, -5 - extraPenalty);
+  const daysDiff = Math.floor((now - dueDate) / (1000*60*60*24));
+
+  if (daysDiff <= -3) return 2;    // Early
+  if (daysDiff < 0)    return 1;    // On‑time
+  return 0;                        // No bonus if on/after due date
 };
 
 const paymentController = {
@@ -295,7 +276,7 @@ const paymentController = {
         // For each charge, calculate payment points 
         for (const charge of charges) {
           const pointsEarned = calculatePaymentPoints(charge);
-          
+          console.log(`DEBUG: charge ${charge.id} pointsEarned =`, pointsEarned);
           // Update the charge metadata
           await charge.update({
             metadata: {
