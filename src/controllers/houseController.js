@@ -1,5 +1,5 @@
 // src/controllers/houseController.js
-const { House, User, Bill, HouseFinance, HouseStatusIndex } = require('../models');
+const { House, User, UserFinance, Bill, HouseFinance, HouseStatusIndex } = require('../models');
 const axios = require('axios'); // still available if needed for other calls
 
 // Create a new house and update the creator's houseId
@@ -48,7 +48,14 @@ exports.getHouse = async (req, res, next) => {
         {
           model: User,
           as: 'users',
-          attributes: ['id', 'username', 'email']
+          attributes: ['id', 'username', 'email'],
+          include: [
+            {
+              model: UserFinance,
+              as: 'finance',
+              attributes: ['points']
+            }
+          ]
         },
         {
           model: HouseStatusIndex,
@@ -56,7 +63,7 @@ exports.getHouse = async (req, res, next) => {
           attributes: ['score', 'bracket', 'feeMultiplier', 'creditMultiplier']
         },
         {
-          model: HouseFinance,  // Include the finance data
+          model: HouseFinance,
           as: 'finance',
           attributes: ['balance', 'ledger', 'lastTransactionDate']
         }
