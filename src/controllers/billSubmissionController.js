@@ -42,6 +42,7 @@ const billSubmissionController = {
     try {
       const { submissionId } = req.params;
       const { amount } = req.body;
+      const userId = req.user.id; // Get the authenticated user's ID
       
       console.log(`[billSubmissionController] Submitting bill amount for submission: ${submissionId}, amount: ${amount}`);
       
@@ -63,6 +64,12 @@ const billSubmissionController = {
       
       console.log(`[billSubmissionController] Found submission: ${JSON.stringify(submission.toJSON())}`);
       
+      // Authorization check: Ensure the authenticated user matches the submission's user
+      if (userId != submission.userId) {
+        console.log(`[billSubmissionController] User ID mismatch: ${userId} vs ${submission.userId}`);
+        return res.status(403).json({ error: 'Unauthorized to submit this bill' });
+      }
+      
       // Fetch the houseService separately to ensure it exists
       const houseService = await HouseService.findByPk(submission.houseServiceId);
       
@@ -78,48 +85,48 @@ const billSubmissionController = {
         return res.status(400).json({ error: 'This bill submission has already been completed' });
       }
       
-      // Now use your existing billController method to create the bill
-      const billController = require('./billController');
+      // Use billService directly instead of calling billController
+      const billService = require('../services/billService');
       
-      console.log('[billSubmissionController] Calling billController.submitVariableBillAmount');
+      console.log('[billSubmissionController] Calling billService.createBillForVariableService');
       
-      // Call the controller method directly
-      const result = await billController.submitVariableBillAmount(
-        { 
-          params: { serviceId: submission.houseServiceId },
-          body: { amount, userId: submission.userId }
-        }, 
-        {
-          status: function(code) {
-            console.log(`[billSubmissionController] Mock response status: ${code}`);
-            return {
-              json: function(data) {
-                console.log('[billSubmissionController] Mock response json called');
-                return data;
-              }
-            };
-          }
+      // Create a transaction for this operation
+      const transaction = await sequelize.transaction();
+      
+      try {
+        // Call the service method directly
+        const result = await billService.createBillForVariableService(
+          houseService,
+          amount,
+          submission.userId,
+          transaction
+        );
+        
+        // Update the submission with the bill info
+        submission.amount = amount;
+        submission.status = 'completed';
+        if (result && result.bill && result.bill.id) {
+          submission.billId = result.bill.id;
         }
-      );
-      
-      console.log(`[billSubmissionController] Bill created: ${result ? JSON.stringify(result.bill || {}) : 'No result'}`);
-      
-      // Update the submission with the bill info
-      submission.amount = amount;
-      submission.status = 'completed';
-      if (result && result.bill && result.bill.id) {
-        submission.billId = result.bill.id;
+        await submission.save({ transaction });
+        
+        // Commit the transaction
+        await transaction.commit();
+        
+        console.log(`[billSubmissionController] Bill created: ${JSON.stringify(result.bill || {})}`);
+        console.log(`[billSubmissionController] Submission updated to completed status`);
+        
+        res.status(200).json({
+          message: 'Bill amount submitted successfully',
+          billSubmission: submission,
+          bill: result.bill || {},
+          charges: result.charges || []
+        });
+      } catch (error) {
+        // Rollback the transaction if there's an error
+        await transaction.rollback();
+        throw error;
       }
-      await submission.save();
-      
-      console.log(`[billSubmissionController] Submission updated to completed status`);
-      
-      res.status(200).json({
-        message: 'Bill amount submitted successfully',
-        billSubmission: submission,
-        bill: result?.bill || {},
-        charges: result?.charges || []
-      });
     } catch (error) {
       console.error('[billSubmissionController] Error submitting bill amount:', error);
       res.status(500).json({ 

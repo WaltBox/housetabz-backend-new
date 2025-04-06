@@ -3,8 +3,11 @@ const express = require('express');
 const { body } = require('express-validator');
 const router = express.Router();
 const userController = require('../controllers/userController');
-const paymentController = require('../controllers/paymentController'); // import PaymentController
-const { updateUserHouse } = require('../controllers/userController');
+const paymentController = require('../controllers/paymentController');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
+
+router.use(authenticateUser);
 
 /**
  * @swagger
@@ -34,11 +37,11 @@ const { updateUserHouse } = require('../controllers/userController');
  *       404:
  *         description: User not found
  */
-router.get('/:id/payments', paymentController.getUserPayments);
+router.get('/:id/payments', catchAsync(paymentController.getUserPayments));
 
 // Existing user routes:
-router.get('/:id', userController.getUser);
-router.get('/', userController.getAllUsers);
+router.get('/:id', catchAsync(userController.getUser));
+router.get('/', catchAsync(userController.getAllUsers));
 router.post(
   '/',
   [
@@ -49,11 +52,11 @@ router.post(
       .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long')
       .matches(/\d/).withMessage('Password must contain at least one number')
   ],
-  userController.createUser
+  catchAsync(userController.createUser)
 );
-router.put('/:id', userController.updateUser);
-router.delete('/:id', userController.deleteUser);
-router.put('/:id/house', updateUserHouse);
-router.put('/:id/join-house', userController.joinHouse);
+router.put('/:id', catchAsync(userController.updateUser));
+router.delete('/:id', catchAsync(userController.deleteUser));
+router.put('/:id/house', catchAsync(userController.updateUserHouse));
+router.put('/:id/join-house', catchAsync(userController.joinHouse));
 
 module.exports = router;

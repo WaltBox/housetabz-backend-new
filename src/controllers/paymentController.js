@@ -1,14 +1,14 @@
 // src/controllers/paymentController.js
-const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House, UserFinance, HouseFinance } = require('../models');
+const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House, UserFinance, HouseFinance, Bill } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
-const hsiService = require('../services/hsiService'); // NEW: Import HSI service for house updates
+const hsiService = require('../services/hsiService');
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
-const financeService = require('../services/financeService'); // Add this
+const financeService = require('../services/financeService');
 const logger = createLogger('payment-controller');
 
-// NEW: Calculate payment points based on charge due date
+// Calculate payment points based on charge due date
 const calculatePaymentPoints = (charge) => {
   const now = new Date();
   const dueDate = new Date(charge.dueDate);
@@ -67,6 +67,11 @@ const paymentController = {
         }]
       });
       if (existingIdempotentPayment) {
+        // Authorization check for existing payment
+        if (existingIdempotentPayment.userId !== userId) {
+          return res.status(403).json({ error: 'Unauthorized access to payment' });
+        }
+        
         return res.json({
           message: 'Payment request already processed',
           payment: existingIdempotentPayment,
@@ -202,7 +207,13 @@ const paymentController = {
       const existingIdempotentPayment = await Payment.findOne({
         where: { idempotencyKey }
       });
+      
       if (existingIdempotentPayment) {
+        // Authorization check for existing payment
+        if (existingIdempotentPayment.userId !== userId) {
+          return res.status(403).json({ error: 'Unauthorized access to payment' });
+        }
+        
         return res.json({
           message: 'Payment request already processed',
           payment: existingIdempotentPayment
@@ -213,10 +224,11 @@ const paymentController = {
       const charges = await Charge.findAll({
         where: { 
           id: chargeIds,
-          userId,
+          userId,  // Already ensures user can only pay their own charges
           status: 'unpaid'
         }
       });
+      
       if (charges.length !== chargeIds.length) {
         return res.status(400).json({ 
           error: 'One or more charges not found or not eligible for payment' 
@@ -263,15 +275,24 @@ const paymentController = {
         }, { transaction });
   
         // Update each charge to mark it as paid
-        await Promise.all(charges.map(charge => 
+        await Promise.all(charges.map(charge =>
           charge.update({
             status: 'paid',
             stripePaymentIntentId: paymentIntent.id,
             paymentMethodId: String(paymentMethodId)
           }, { transaction })
         ));
+        
+        
+        const billIds = [...new Set(charges.map(c => c.billId))];
+        for (const billId of billIds) {
+          const bill = await Bill.findByPk(billId, { transaction });
+          if (bill) {
+            await bill.updateStatus(transaction); // Pass the transaction here
+          }
+        }
   
-        // NEW: For each charge, calculate payment points 
+        // For each charge, calculate payment points 
         for (const charge of charges) {
           const pointsEarned = calculatePaymentPoints(charge);
           
@@ -284,7 +305,7 @@ const paymentController = {
             }
           }, { transaction });
         }
-  
+
         // Get the user and their finance record
         const user = await User.findByPk(userId, { 
           include: [{ model: UserFinance, as: 'finance' }],
@@ -339,9 +360,6 @@ const paymentController = {
                 stripePaymentIntentId: paymentIntent.id
               }
             );
-            
-            // Update HSI
-            //await hsiService.updateHouseHSI(user.houseId, transaction);
           }
         }
   
@@ -377,22 +395,22 @@ const paymentController = {
         });
       }
     } catch (error) {
-    // Enhanced error logging
-    console.error('Error processing batch payment:', error);
-    console.error('Error stack:', error.stack);
-    
-    // Log specific details that might help debug
-    if (error.response) {
-      console.error('Response data:', error.response.data);
+      // Enhanced error logging
+      console.error('Error processing batch payment:', error);
+      console.error('Error stack:', error.stack);
+      
+      // Log specific details that might help debug
+      if (error.response) {
+        console.error('Response data:', error.response.data);
+      }
+      
+      return res.status(500).json({ 
+        error: 'Failed to process batch payment',
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development_local' ? error.stack : undefined
+      });
     }
-    
-    return res.status(500).json({ 
-      error: 'Failed to process batch payment',
-      details: error.message,
-      stack: process.env.NODE_ENV === 'development_local' ? error.stack : undefined
-    });
-  }
-},
+  },
   
   async getPaymentStatus(req, res) {
     try {
@@ -400,7 +418,7 @@ const paymentController = {
       const userId = req.user.id;
 
       const payment = await Payment.findOne({
-        where: { id: paymentId, userId },
+        where: { id: paymentId, userId }, // This already ensures user can only access their own payments
         include: [{
           model: Task,
           as: 'task',
@@ -411,6 +429,7 @@ const paymentController = {
           }]
         }]
       });
+      
       if (!payment) {
         return res.status(404).json({ error: 'Payment not found' });
       }
@@ -447,8 +466,9 @@ const paymentController = {
       }
 
       const payment = await Payment.findOne({
-        where: { id: paymentId, userId, status: 'failed' }
+        where: { id: paymentId, userId, status: 'failed' } // This ensures user can only retry their own failed payments
       });
+      
       if (!payment) return res.status(404).json({ error: 'Failed payment not found' });
       if (payment.retryCount >= 3) return res.status(400).json({ error: 'Maximum retry attempts reached' });
 
@@ -467,15 +487,18 @@ const paymentController = {
     }
   },
 
-  // NEW: Get all payments for a given user (with associated charge details)
   async getUserPayments(req, res) {
     try {
-      // Expecting a parameter named userId (or id if using a user route)
       const userId = req.params.userId || req.params.id;
+      
       if (!userId) {
         return res.status(400).json({ error: 'Missing user identifier' });
       }
-      // Optionally, verify authorization here (e.g., req.user.id === userId)
+      
+      // Authorization check: User can only access their own payments
+      if (req.user.id != userId) {
+        return res.status(403).json({ error: 'Unauthorized access to user payments' });
+      }
 
       // Fetch all payments for the user
       const payments = await Payment.findAll({
@@ -499,7 +522,7 @@ const paymentController = {
 
       return res.json({ payments: paymentsWithCharges });
     } catch (error) {
-      console.error('Error fetching user payments:', error);
+      logger.error('Error fetching user payments:', error);
       return res.status(500).json({ error: 'Failed to fetch user payments' });
     }
   }

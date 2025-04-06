@@ -2,7 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const billSubmissionController = require('../controllers/billSubmissionController');
-// const authMiddleware = require('../middleware/authMiddleware');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
 
 /**
  * @swagger
@@ -66,10 +67,11 @@ const billSubmissionController = require('../controllers/billSubmissionControlle
  *         description: Server error
  */
 router.get(
-  '/users/:userId/bill-submissions',
-//   authMiddleware.verifyToken,
-  billSubmissionController.getPendingSubmissionsForUser
-);
+    '/users/:userId/bill-submissions',
+    authenticateUser,
+    catchAsync(billSubmissionController.getPendingSubmissionsForUser)
+  );
+  
 
 /**
  * @swagger
@@ -160,9 +162,9 @@ router.get(
  *         description: Server error
  */
 router.post(
-  '/bill-submissions/:submissionId/submit',
-//   authMiddleware.verifyToken,
-  billSubmissionController.submitBillAmount
-);
+    '/bill-submissions/:submissionId/submit',
+    authenticateUser,
+    catchAsync(billSubmissionController.submitBillAmount)
+  );
 
 module.exports = router;

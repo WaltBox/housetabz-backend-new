@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/notificationController');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
 
 /**
  * @swagger
@@ -9,6 +11,8 @@ const notificationController = require('../controllers/notificationController');
  *     summary: Get all notifications for a user
  *     description: Fetch all notifications for a specific user, ordered by creation date.
  *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: userId
@@ -23,12 +27,22 @@ const notificationController = require('../controllers/notificationController');
  *         description: User not found or no notifications.
  *       500:
  *         description: Server error.
- *
+ */
+router.get(
+  '/users/:userId/notifications', 
+  authenticateUser, 
+  catchAsync(notificationController.getNotificationsForUser)
+);
+
+/**
+ * @swagger
  * /users/{userId}/notifications/{notificationId}:
  *   get:
  *     summary: Get a specific notification for a user
  *     description: Fetch a single notification for a user by ID.
  *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: userId
@@ -49,11 +63,22 @@ const notificationController = require('../controllers/notificationController');
  *         description: Notification not found.
  *       500:
  *         description: Server error.
- *
+ */
+router.get(
+  '/users/:userId/notifications/:notificationId', 
+  authenticateUser, 
+  catchAsync(notificationController.getNotificationById)
+);
+
+/**
+ * @swagger
+ * /users/{userId}/notifications/{notificationId}:
  *   patch:
  *     summary: Mark a notification as read
  *     description: Update a notification's `isRead` status to true.
  *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: userId
@@ -75,9 +100,10 @@ const notificationController = require('../controllers/notificationController');
  *       500:
  *         description: Server error.
  */
-
-router.get('/users/:userId/notifications', notificationController.getNotificationsForUser);
-router.get('/users/:userId/notifications/:notificationId', notificationController.getNotificationById);
-router.patch('/users/:userId/notifications/:notificationId', notificationController.markAsRead);
+router.patch(
+  '/users/:userId/notifications/:notificationId', 
+  authenticateUser, 
+  catchAsync(notificationController.markAsRead)
+);
 
 module.exports = router;

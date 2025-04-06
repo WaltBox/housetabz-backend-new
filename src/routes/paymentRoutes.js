@@ -3,8 +3,10 @@ const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
 const webhookController = require('../controllers/webhookController');
-const auth = require('../middleware/auth');
-const authMiddleware = require('../middleware/authMiddleware');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
+
+router.use(authenticateUser);
 /**
  * @swagger
  * components:
@@ -100,9 +102,9 @@ const authMiddleware = require('../middleware/authMiddleware');
  *       404:
  *         description: Task not found
  */
-router.post('/tasks/:taskId', auth, paymentController.processPayment);
+router.post('/tasks/:taskId', catchAsync(paymentController.processPayment));
 
-router.post('/batch', auth, paymentController.processBatchPayment);
+router.post('/batch', catchAsync(paymentController.processBatchPayment));
 /**
  * @swagger
  * /api/payments/{paymentId}/status:
@@ -130,7 +132,7 @@ router.post('/batch', auth, paymentController.processBatchPayment);
  *                 bundleStatus:
  *                   $ref: '#/components/schemas/RoommateStatus'
  */
-router.get('/:paymentId/status', auth, paymentController.getPaymentStatus);
+router.get('/:paymentId/status', catchAsync(paymentController.getPaymentStatus));
 
 /**
  * @swagger
@@ -169,7 +171,7 @@ router.get('/:paymentId/status', auth, paymentController.getPaymentStatus);
  *       404:
  *         description: Payment not found
  */
-router.post('/:paymentId/retry', auth, paymentController.retryPayment);
+router.post('/:paymentId/retry', catchAsync(paymentController.retryPayment));
 
 /**
  * @swagger

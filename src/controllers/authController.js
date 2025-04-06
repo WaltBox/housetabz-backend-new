@@ -3,8 +3,10 @@ const { User, House } = require('../models');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize'); // Import Sequelize operators
+const { generateAccessToken, verifyRefreshToken } = require('../middleware/auth/tokenUtils');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
 
 const createToken = (user) => {
   return jwt.sign(
@@ -162,6 +164,60 @@ res.status(201).json({
       res.status(500).json({
         success: false,
         message: 'An error occurred during registration',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+  async refreshToken(req, res) {
+    try {
+      const { refreshToken } = req.body;
+      
+      if (!refreshToken) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Refresh token is required' 
+        });
+      }
+      
+      // Verify the refresh token
+      let decoded;
+      try {
+        decoded = verifyRefreshToken(refreshToken);
+      } catch (error) {
+        return res.status(401).json({ 
+          success: false,
+          message: 'Invalid or expired refresh token' 
+        });
+      }
+      
+      // Get user to include in response
+      const user = await User.findByPk(decoded.id, {
+        attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit']
+      });
+      
+      if (!user) {
+        return res.status(404).json({ 
+          success: false,
+          message: 'User not found' 
+        });
+      }
+      
+      // Generate a new access token
+      const accessToken = generateAccessToken(user.id);
+      
+      res.json({
+        success: true,
+        message: 'Access token refreshed successfully',
+        data: {
+          token: accessToken,
+          user
+        }
+      });
+    } catch (error) {
+      console.error('Token refresh error:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Failed to refresh token',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }

@@ -12,10 +12,14 @@ const environment = process.env.NODE_ENV || 'development';
 const fullConfig = require('./config/config');
 const config = fullConfig[environment]; // 👈 This gets development_local, etc.
 
-const { limiter, blockPaths } = require('./middleware/requestLimiter');
+const { apiLimiter: limiter, blockPaths } = require('./middleware/security/rateLimiter');
 
 const { sequelize } = require('./models'); // Import Sequelize instance
 
+
+// const { authenticateUser } = require('./middleware/auth/userAuth');
+// const { authenticatePartner } = require('./middleware/auth/partnerAuth');
+// const { authenticateWebhook } = require('./middleware/auth/webhookAuth');
 // Import route files
 const userRoutes = require('./routes/userRoutes');
 const houseRoutes = require('./routes/houseRoutes');
@@ -94,15 +98,15 @@ app.use(blockPaths);
 
 // Serve static files
 app.use('/uploads', express.static('uploads'));
-
+app.use('/api/stripe/webhook', require('./routes/stripeWebhookRoutes'));
 // Swagger setup
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Apply routes
 app.use('/api/users', userRoutes);
 app.use('/api/houses', houseRoutes);
-app.use('/api', partnerRoutes);
-app.use('/api', serviceRequestBundleRoutes);
+app.use('/api/partners', partnerRoutes);
+app.use('/api/service-request-bundles', serviceRequestBundleRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/houses', billRoutes);
 app.use('/api/users', chargeRoutes);

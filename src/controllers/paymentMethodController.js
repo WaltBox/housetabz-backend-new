@@ -1,6 +1,7 @@
 // src/controllers/paymentMethodController.js
 const stripeService = require('../services/StripeService');
 const { createLogger } = require('../utils/logger');
+const { PaymentMethod } = require('../models');
 
 const logger = createLogger('payment-method-controller');
 
@@ -36,6 +37,9 @@ exports.completeSetupIntent = async (req, res) => {
     if (!stripePaymentMethodId) {
       return res.status(400).json({ error: 'No payment method attached to SetupIntent' });
     }
+
+    // Validate that this setup intent is for this user
+    // This could be done by checking additional metadata on the setupIntent if available
 
     const paymentMethod = await stripeService.createPaymentMethodFromSetupIntent(userId, stripePaymentMethodId);
 
@@ -73,12 +77,28 @@ exports.getPaymentMethods = async (req, res) => {
   }
 };
 
-
-
 exports.setDefaultPaymentMethod = async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
+
+    // Add explicit authorization check - verify this payment method belongs to the user
+    // First check in our database (if we store payment methods)
+    const paymentMethod = await PaymentMethod.findOne({
+      where: { stripePaymentMethodId: id, userId }
+    });
+
+    if (!paymentMethod) {
+      // If not found in our database, verify with Stripe
+      const methods = await stripeService.getPaymentMethods(userId);
+      const methodExists = methods.some(method => method.id === id);
+      
+      if (!methodExists) {
+        return res.status(403).json({ 
+          error: 'Unauthorized access to payment method'
+        });
+      }
+    }
 
     await stripeService.setDefaultPaymentMethod(userId, id);
     const updatedMethods = await stripeService.getPaymentMethods(userId);
@@ -100,6 +120,24 @@ exports.removePaymentMethod = async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
+
+    // Add explicit authorization check - verify this payment method belongs to the user
+    // First check in our database (if we store payment methods)
+    const paymentMethod = await PaymentMethod.findOne({
+      where: { stripePaymentMethodId: id, userId }
+    });
+
+    if (!paymentMethod) {
+      // If not found in our database, verify with Stripe
+      const methods = await stripeService.getPaymentMethods(userId);
+      const methodExists = methods.some(method => method.id === id);
+      
+      if (!methodExists) {
+        return res.status(403).json({ 
+          error: 'Unauthorized access to payment method'
+        });
+      }
+    }
 
     const paymentMethods = await stripeService.getPaymentMethods(userId);
     if (paymentMethods.length === 1) {

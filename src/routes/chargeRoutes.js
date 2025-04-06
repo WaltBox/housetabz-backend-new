@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router({ mergeParams: true });
 const chargeController = require('../controllers/chargeController');
-
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
 /**
  * @swagger
  * /users/{userId}/charges:
@@ -35,7 +36,7 @@ const chargeController = require('../controllers/chargeController');
  *                     type: string
  *                     enum: [pending, processing, paid, failed]
  */
-router.get('/:userId/charges', chargeController.getChargesForUser);
+router.get('/:userId/charges', authenticateUser, catchAsync(chargeController.getChargesForUser));
 
 /**
  * @swagger
@@ -70,7 +71,7 @@ router.get('/:userId/charges', chargeController.getChargesForUser);
  *                     type: string
  *                     enum: [pending, processing, failed]
  */
-router.get('/:userId/charges/unpaid', chargeController.getUnpaidChargesForUser);
+router.get('/:userId/charges/unpaid', authenticateUser, catchAsync(chargeController.getUnpaidChargesForUser));
 
 /**
  * @swagger
@@ -111,6 +112,6 @@ router.get('/:userId/charges/unpaid', chargeController.getUnpaidChargesForUser);
  *       404:
  *         description: Charge not found
  */
-router.get('/:userId/charges/:id', chargeController.getChargeById);
+router.get('/:userId/charges/:id', authenticateUser, catchAsync(chargeController.getChargeById));
 
 module.exports = router;

@@ -2,6 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const billController = require('../controllers/billController');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
 
 /**
  * @swagger
@@ -117,7 +119,7 @@ const billController = require('../controllers/billController');
  *       500:
  *         description: Server error
  */
-router.post('/:houseId/bills', billController.createBill);
+router.post('/:houseId/bills', authenticateUser, catchAsync(billController.createBill));
 
 /**
  * @swagger
@@ -150,8 +152,9 @@ router.post('/:houseId/bills', billController.createBill);
  *       404:
  *         description: House not found
  */
-router.get('/:houseId/bills', billController.getBillsForHouse);
+router.get('/:houseId/bills', authenticateUser, catchAsync(billController.getBillsForHouse));
 
+router.get('/:houseId/paid-bills', authenticateUser, catchAsync(billController.getPaidBillsForHouse));
 /**
  * @swagger
  * /houses/{houseId}/bills/{billId}:
@@ -181,7 +184,8 @@ router.get('/:houseId/bills', billController.getBillsForHouse);
  *       404:
  *         description: House or bill not found
  */
-router.get('/:houseId/bills/:billId', billController.getBillForHouse);
+router.get('/:houseId/bills/:billId', authenticateUser, catchAsync(billController.getBillForHouse));
+
 
 /**
  * @swagger
@@ -225,7 +229,7 @@ router.get('/:houseId/bills/:billId', billController.getBillForHouse);
  *                       success:
  *                         type: boolean
  */
-router.post('/:houseId/generate-fixed-bills', billController.generateFixedBills);
+router.post('/:houseId/generate-fixed-bills', authenticateUser, catchAsync(billController.generateFixedBills));
 
 /**
  * @swagger
@@ -264,7 +268,7 @@ router.post('/:houseId/generate-fixed-bills', billController.generateFixedBills)
  *                       status:
  *                         type: string
  */
-router.get('/user/variable-services', billController.getUserVariableServices);
+router.get('/user/variable-services', authenticateUser, catchAsync(billController.getUserVariableServices));
 
 /**
  * @swagger
@@ -309,7 +313,7 @@ router.get('/user/variable-services', billController.getUserVariableServices);
  *                 bill:
  *                   $ref: '#/components/schemas/Bill'
  */
-router.post('/services/:serviceId/submit-bill', billController.submitVariableBillAmount);
+router.post('/services/:serviceId/submit-bill', authenticateUser, catchAsync(billController.submitVariableBillAmount));
 
 /**
  * @swagger
@@ -332,6 +336,6 @@ router.post('/services/:serviceId/submit-bill', billController.submitVariableBil
  *                 failureCount:
  *                   type: integer
  */
-router.post('/generate-variable-reminders', billController.generateVariableReminders);
+router.post('/generate-variable-reminders', authenticateUser, catchAsync(billController.generateVariableReminders));
 
 module.exports = router;

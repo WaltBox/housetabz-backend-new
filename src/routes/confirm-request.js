@@ -16,8 +16,8 @@ router.get('/', async (req, res) => {
      apiKey
    } = req.query;
 
-   // For now just render with the data
-   res.render('confirm-request', {
+   // Return JSON data instead of rendering a view
+   res.json({
      serviceName,
      serviceType,
      amount: parseFloat(amount),
@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
 
  } catch (error) {
    console.error('Error loading confirm page:', error);
-   res.status(500).send('Error loading confirmation page');
+   res.status(500).json({ error: 'Error loading confirmation data' });
  }
 });
 

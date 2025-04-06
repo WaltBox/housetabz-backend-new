@@ -1,6 +1,8 @@
 const express = require('express');
-const taskController = require('../controllers/taskController'); // Correct path to the taskController
+const taskController = require('../controllers/taskController');
 const router = express.Router();
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { catchAsync } = require('../middleware/errorHandler');
 
 /**
  * @swagger
@@ -12,7 +14,8 @@ const router = express.Router();
  *       200:
  *         description: A list of tasks
  */
-router.get('/', taskController.getTasks);
+router.get('/', authenticateUser, catchAsync(taskController.getTasks));
+
 
 /**
  * @swagger
@@ -30,7 +33,7 @@ router.get('/', taskController.getTasks);
  *       200:
  *         description: A list of tasks for the user
  */
-router.get('/user/:userId', taskController.getTasksByUser);
+router.get('/user/:userId', authenticateUser, catchAsync(taskController.getTasksByUser));
 
 
 /**
@@ -46,7 +49,7 @@ router.get('/user/:userId', taskController.getTasksByUser);
  *         schema:
  *           type: integer
  */
-router.get('/:taskId', taskController.getTaskStatus);
+router.get('/:taskId', authenticateUser, catchAsync(taskController.getTaskStatus));
 
 /**
  * @swagger
@@ -74,6 +77,6 @@ router.get('/:taskId', taskController.getTaskStatus);
  *       200:
  *         description: Task updated successfully
  */
-router.patch('/:taskId', taskController.updateTask);
+router.patch('/:taskId', authenticateUser, catchAsync(taskController.updateTask));
 
 module.exports = router;

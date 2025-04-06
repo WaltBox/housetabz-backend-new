@@ -12,8 +12,6 @@ const {
   sequelize 
 } = require('../models');
 const billService = require('../services/billService');
-const hsiService = require('../services/hsiService');
-const financeService = require('../services/financeService'); // Import the finance service
 const { Op } = require('sequelize');
 const { createLogger } = require('../utils/logger');
 
@@ -24,6 +22,11 @@ exports.createBill = async (req, res, next) => {
     const { houseId } = req.params;
     const { amount, houseServiceId, billType, dueDate } = req.body;
 
+    // Authorization check: Ensure user belongs to this house
+    if (req.user.houseId != houseId) {
+      return res.status(403).json({ error: 'Unauthorized access to house' });
+    }
+
     if (!houseServiceId) {
       return res.status(400).json({ error: 'houseServiceId is required' });
     }
@@ -33,133 +36,29 @@ exports.createBill = async (req, res, next) => {
       return res.status(404).json({ error: 'HouseService not found' });
     }
 
-    // Start a transaction for all operations
+    // Additional check to ensure service belongs to this house
+    if (houseService.houseId != houseId) {
+      return res.status(403).json({ error: 'Service does not belong to this house' });
+    }
+
+    // Start a transaction
     const transaction = await sequelize.transaction();
 
     try {
-      // Get all users in the house to calculate fees
-      const users = await User.findAll({ 
-        where: { houseId },
-        transaction
-      });
-      
-      const numberOfUsers = users.length;
-      
-      // Get the base amount
-      const baseAmount = parseFloat(amount);
-      
-      // Retrieve the current HouseStatusIndex for the house
-      const houseStatus = await HouseStatusIndex.findOne({
-        where: { houseId },
-        order: [['updatedAt', 'DESC']]
-      }, { transaction });
-      
-      const hsiScore = houseStatus ? houseStatus.score : 50;
-      
-      // Calculate the base service fee per user based on fee category
-      const baseServiceFeeRate = houseService.feeCategory === 'card' ? 2.00 : 0.00;
-      const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
-      
-      // Use the existing HSI service to calculate the fee multiplier
-      const feeMultiplier = hsiService.calculateFeeMultiplier(hsiScore);
-      
-      // Calculate the total service fee with HSI adjustment
-      const totalServiceFee = parseFloat((totalBaseServiceFee * feeMultiplier).toFixed(2));
-      
-      // Calculate the total bill amount including service fees
-      const totalAmount = parseFloat((baseAmount + totalServiceFee).toFixed(2));
-      
-      // Create the Bill with both base amount and service fee
-      const bill = await Bill.create({
-        houseId,
-        baseAmount: baseAmount,
-        serviceFeeTotal: totalServiceFee,
-        amount: totalAmount,
-        houseService_id: houseServiceId,
-        name: houseService.name,
-        status: 'pending',
-        billType: billType || 'regular',
-        dueDate: dueDate ? new Date(dueDate) : null
-      }, { transaction });
-
-      // Calculate each user's portion
-      const baseChargeAmount = parseFloat((baseAmount / numberOfUsers).toFixed(2));
-      const chargeServiceFee = parseFloat((totalServiceFee / numberOfUsers).toFixed(2));
-
-      // Create charges for each user
-      const charges = users.map((user) => ({
-        userId: user.id,
-        baseAmount: baseChargeAmount,
-        serviceFee: chargeServiceFee,
-        amount: parseFloat((baseChargeAmount + chargeServiceFee).toFixed(2)),
-        status: 'unpaid',
-        billId: bill.id,
-        name: bill.name,
-        dueDate: bill.dueDate,
-        hsiAtTimeOfCharge: hsiScore,
-        pointsPotential: 2,
-        metadata: {
-          billType,
-          baseServiceFee: baseServiceFeeRate,
-          adjustedServiceFee: chargeServiceFee,
-          feeMultiplier: feeMultiplier
-        }
-      }));
-
-      const createdCharges = await Charge.bulkCreate(charges, { transaction });
-
-      // Create notifications for each charge
-      const notifications = createdCharges.map((charge) => ({
-        userId: charge.userId,
-        message: `Hey user, you have a new charge of $${Number(charge.amount).toFixed(2)} for ${charge.name}.`,
-        metadata: {
-          type: 'new_charge',
-          chargeId: charge.id,
-          billId: bill.id,
-          amount: Number(charge.amount)
-        }
-      }));
-
-      await Notification.bulkCreate(notifications, { transaction });
-
-      // Update user balances using the finance service
-      for (const user of users) {
-        const userCharge = createdCharges.find(charge => charge.userId === user.id);
-        if (userCharge) {
-          await financeService.addUserCharge(
-            user.id,
-            userCharge.amount,
-            `New charge for ${bill.name}`,
-            transaction,
-            {
-              billId: bill.id,
-              chargeId: userCharge.id,
-              billType: billType || 'regular'
-            }
-          );
-        }
-      }
-
-      // Update house balance using the finance service with the TOTAL amount
-      await financeService.updateHouseBalance(
-        houseId,
-        totalAmount, // Use the total amount including service fees
-        'CHARGE',
-        `New bill: ${bill.name}`,
+      // Use the centralized bill creation function
+      const result = await billService.createBill({
+        service: houseService,
+        baseAmount: amount,
         transaction,
-        {
-          billId: bill.id,
-          billType: billType || 'regular',
-          serviceId: houseServiceId
-        }
-      );
+        customDueDate: dueDate ? new Date(dueDate) : null
+      });
 
       await transaction.commit();
 
       res.status(201).json({
         message: 'Bill, charges, and notifications created successfully',
-        bill,
-        charges: createdCharges
+        bill: result.bill,
+        charges: result.charges
       });
     } catch (error) {
       await transaction.rollback();
@@ -176,6 +75,11 @@ exports.getBillsForHouse = async (req, res, next) => {
   try {
     const { houseId } = req.params;
     const { billType } = req.query;
+
+    // Authorization check: Ensure user belongs to this house
+    if (req.user.houseId != houseId) {
+      return res.status(403).json({ error: 'Unauthorized access to house bills' });
+    }
 
     const house = await House.findByPk(houseId);
     if (!house) {
@@ -225,9 +129,42 @@ exports.getBillsForHouse = async (req, res, next) => {
   }
 };
 
+exports.getPaidBillsForHouse = async (req, res) => {
+  try {
+    const { houseId } = req.params;
+    
+    // Authorization check: Ensure user belongs to this house
+    if (req.user.houseId != houseId) {
+      return res.status(403).json({ error: 'Unauthorized access to house bills' });
+    }
+    
+    // Only include bills that have a status of 'paid'
+    const bills = await Bill.findAll({
+      where: {
+        houseId,
+        status: 'paid'
+      }
+    });
+
+    if (!bills || bills.length === 0) {
+      return res.status(404).json({ message: 'No paid bills found for this house' });
+    }
+
+    res.status(200).json(bills);
+  } catch (error) {
+    console.error('Error fetching paid bills for house:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 exports.getBillForHouse = async (req, res, next) => {
   try {
     const { houseId, billId } = req.params;
+
+    // Authorization check: Ensure user belongs to this house
+    if (req.user.houseId != houseId) {
+      return res.status(403).json({ error: 'Unauthorized access to house bill' });
+    }
 
     const house = await House.findByPk(houseId);
     if (!house) {
@@ -276,10 +213,23 @@ exports.generateFixedBills = async (req, res, next) => {
   try {
     const { houseId } = req.params;
     
+    // Admin operation - check for admin role or house ownership
+    // For specific house, user must belong to that house
+    if (houseId !== '0' && req.user.houseId != houseId && !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Unauthorized to generate bills for this house' });
+    }
+    
+    // For all houses, user must be admin
+    if (houseId === '0' && !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Only administrators can generate bills for all houses' });
+    }
+    
     let result;
     if (houseId === '0') {
+      // Generate bills for all houses
       result = await billService.generateFixedRecurringBills();
     } else {
+      // Generate bills for a specific house
       const services = await HouseService.findAll({
         where: {
           houseId,
@@ -291,6 +241,7 @@ exports.generateFixedBills = async (req, res, next) => {
       const results = [];
       for (const service of services) {
         try {
+          // Use the refactored service function
           const billResult = await billService.createBillForFixedService(service);
           results.push({
             serviceId: service.id,
@@ -333,6 +284,11 @@ exports.submitVariableBillAmount = async (req, res) => {
     const { serviceId } = req.params;
     const { amount, userId } = req.body;
     
+    // Authorization check: Ensure the authenticated user matches the userId being passed
+    if (req.user.id != userId) {
+      return res.status(403).json({ error: 'Unauthorized to submit bill on behalf of another user' });
+    }
+    
     if (!serviceId || !amount || !userId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -340,6 +296,11 @@ exports.submitVariableBillAmount = async (req, res) => {
     const service = await HouseService.findByPk(serviceId);
     if (!service) {
       return res.status(404).json({ error: 'Service not found' });
+    }
+    
+    // Authorization check: Ensure user belongs to the house this service is for
+    if (req.user.houseId != service.houseId) {
+      return res.status(403).json({ error: 'Service does not belong to your house' });
     }
     
     if (service.type !== 'variable_recurring') {
@@ -352,145 +313,23 @@ exports.submitVariableBillAmount = async (req, res) => {
       });
     }
 
-    const today = new Date();
-    const dueDate = new Date(today.getFullYear(), today.getMonth(), service.dueDay || 1);
-    if (dueDate < today) {
-      dueDate.setMonth(dueDate.getMonth() + 1);
-    }
-
     const transaction = await sequelize.transaction();
     
     try {
-      // Get all users in the house
-      const users = await User.findAll({ 
-        where: { houseId: service.houseId },
+      // Use the refactored service for variable bill creation
+      const result = await billService.createBillForVariableService(
+        service,
+        amount,
+        userId,
         transaction
-      });
-      
-      if (!users.length) {
-        throw new Error('No users found for this house');
-      }
-      
-      const numberOfUsers = users.length;
-      const baseAmount = parseFloat(amount);
-      
-      // Retrieve the current HouseStatusIndex for the house
-      const houseStatus = await HouseStatusIndex.findOne({
-        where: { houseId: service.houseId },
-        order: [['updatedAt', 'DESC']]
-      }, { transaction });
-      
-      const hsiScore = houseStatus ? houseStatus.score : 50;
-      
-      // Calculate the base service fee per user based on fee category
-      const baseServiceFeeRate = service.feeCategory === 'card' ? 2.00 : 0.00;
-      const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
-      
-      // Use the existing HSI service to calculate the fee multiplier
-      const feeMultiplier = hsiService.calculateFeeMultiplier(hsiScore);
-      
-      // Calculate the total service fee with HSI adjustment
-      const totalServiceFee = parseFloat((totalBaseServiceFee * feeMultiplier).toFixed(2));
-      
-      // Calculate the total bill amount including service fees
-      const totalAmount = parseFloat((baseAmount + totalServiceFee).toFixed(2));
-      
-      // Create the bill with the new structure
-      const bill = await Bill.create({
-        houseId: service.houseId,
-        baseAmount: baseAmount,
-        serviceFeeTotal: totalServiceFee,
-        amount: totalAmount,
-        houseService_id: service.id,
-        name: service.name,
-        status: 'pending',
-        dueDate,
-        billType: 'variable_recurring',
-        createdBy: userId,
-        metadata: {
-          submittedAt: new Date(),
-          submittedByUserId: userId
-        }
-      }, { transaction });
-      
-      // Calculate each user's portion
-      const baseChargeAmount = parseFloat((baseAmount / numberOfUsers).toFixed(2));
-      const chargeServiceFee = parseFloat((totalServiceFee / numberOfUsers).toFixed(2));
-      
-      // Create charges for each user
-      const chargeData = users.map((user) => ({
-        userId: user.id,
-        billId: bill.id,
-        baseAmount: baseChargeAmount,
-        serviceFee: chargeServiceFee,
-        amount: parseFloat((baseChargeAmount + chargeServiceFee).toFixed(2)),
-        name: service.name,
-        status: 'pending',
-        dueDate: bill.dueDate,
-        hsiAtTimeOfCharge: hsiScore,
-        pointsPotential: 2,
-        metadata: {
-          baseServiceFee: baseServiceFeeRate,
-          adjustedServiceFee: chargeServiceFee,
-          feeMultiplier: feeMultiplier
-        }
-      }));
-      
-      const createdCharges = await Charge.bulkCreate(chargeData, { transaction });
-      
-      // Create notifications
-      const notificationData = users.map((user) => ({
-        userId: user.id,
-        message: `You have a new charge of $${(baseChargeAmount + chargeServiceFee).toFixed(2)} for ${service.name}.`,
-        isRead: false,
-        metadata: {
-          type: 'new_charge',
-          billId: bill.id,
-          serviceId: service.id,
-          amount: baseChargeAmount + chargeServiceFee
-        }
-      }));
-      
-      await Notification.bulkCreate(notificationData, { transaction });
-      
-      // Update user balances
-      for (const user of users) {
-        const userCharge = createdCharges.find(charge => charge.userId === user.id);
-        if (userCharge) {
-          await financeService.addUserCharge(
-            user.id,
-            userCharge.amount,
-            `Variable charge for ${service.name}`,
-            transaction,
-            {
-              billId: bill.id,
-              chargeId: userCharge.id,
-              billType: 'variable_recurring'
-            }
-          );
-        }
-      }
-      
-      // Update house balance with total amount
-      await financeService.updateHouseBalance(
-        service.houseId,
-        totalAmount,
-        'CHARGE',
-        `Variable bill: ${service.name}`,
-        transaction,
-        {
-          billId: bill.id,
-          billType: 'variable_recurring',
-          serviceId: service.id
-        }
       );
       
       await transaction.commit();
       
       return res.status(201).json({
         message: 'Variable bill created successfully',
-        bill,
-        charges: createdCharges
+        bill: result.bill,
+        charges: result.charges
       });
     } catch (error) {
       await transaction.rollback();
@@ -507,6 +346,11 @@ exports.submitVariableBillAmount = async (req, res) => {
 
 exports.generateVariableReminders = async (req, res) => {
   try {
+    // Admin operation - check for admin role
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ error: 'Only administrators can generate variable reminders' });
+    }
+    
     const result = await billService.generateVariableServiceReminders();
     res.status(200).json(result);
   } catch (error) {
@@ -517,9 +361,15 @@ exports.generateVariableReminders = async (req, res) => {
     });
   }
 };
+
 exports.getUserVariableServices = async (req, res) => {
   try {
     const { userId } = req.query;
+    
+    // Authorization check: Ensure the authenticated user matches the requested userId
+    if (req.user.id != userId) {
+      return res.status(403).json({ error: 'Unauthorized access to user services' });
+    }
     
     if (!userId) {
       return res.status(400).json({ error: 'Missing required userId parameter' });

@@ -1,6 +1,6 @@
 // Fixed controller with proper Sequelize Op import
 const { Charge, User, Bill, sequelize } = require('../models');
-const { Op } = require('sequelize');  // Add this import
+const { Op } = require('sequelize');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('charge-controller');
@@ -8,9 +8,18 @@ const logger = createLogger('charge-controller');
 // Get a specific charge by its ID
 exports.getChargeById = async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { userId, id } = req.params;
 
-    const charge = await Charge.findByPk(id, {
+    // Authorization check
+    if (req.user.id != userId) {
+      return res.status(403).json({ message: 'Unauthorized access to charge' });
+    }
+
+    const charge = await Charge.findOne({
+      where: {
+        id,
+        userId // Ensure the charge belongs to the user
+      },
       attributes: ['id', 'amount', 'name', 'status', 'dueDate', 'metadata'],
       include: {
         model: Bill,
@@ -24,7 +33,7 @@ exports.getChargeById = async (req, res, next) => {
 
     res.status(200).json(charge);
   } catch (error) {
-    console.error('Error fetching charge by ID:', error);
+    logger.error('Error fetching charge by ID:', error);
     next(error);
   }
 };
@@ -34,9 +43,9 @@ exports.getChargesForUser = async (req, res, next) => {
   try {
     const { userId } = req.params;
 
-    const user = await User.findByPk(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Authorization check
+    if (req.user.id != userId) {
+      return res.status(403).json({ message: 'Unauthorized access to charges' });
     }
 
     const charges = await Charge.findAll({
@@ -51,7 +60,7 @@ exports.getChargesForUser = async (req, res, next) => {
 
     res.status(200).json(charges);
   } catch (error) {
-    console.error('Error fetching charges for user:', error);
+    logger.error('Error fetching charges for user:', error);
     next(error);
   }
 };
@@ -61,15 +70,15 @@ exports.getUnpaidChargesForUser = async (req, res, next) => {
   try {
     const { userId } = req.params;
     
-    const user = await User.findByPk(userId);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Authorization check
+    if (req.user.id != userId) {
+      return res.status(403).json({ message: 'Unauthorized access to charges' });
     }
     
     const charges = await Charge.findAll({
       where: { 
         userId,
-        status: { [Op.ne]: 'paid' } // Use imported Op instead of sequelize.Op
+        status: { [Op.ne]: 'paid' }
       },
       attributes: ['id', 'amount', 'name', 'status', 'dueDate', 'metadata'],
       include: {

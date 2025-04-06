@@ -1,11 +1,237 @@
 // src/services/billService.js
-const { HouseService, Bill, Charge, User, Notification, BillSubmission, sequelize } = require('../models');
+const { 
+  HouseService, 
+  Bill, 
+  Charge, 
+  User, 
+  Notification, 
+  BillSubmission, 
+  HouseStatusIndex,
+  sequelize 
+} = require('../models');
+const hsiService = require('./hsiService');
+const financeService = require('./financeService');
 const { Op } = require('sequelize');
+
+/**
+ * Core bill creation function - centralized logic for creating bills
+ * @param {Object} params - Parameters for bill creation
+ * @param {Object} params.service - The service object for which to create a bill
+ * @param {number} [params.baseAmount] - Optional override for the bill amount (used for variable bills)
+ * @param {Object} [params.transaction] - Optional existing transaction
+ * @param {string} [params.createdBy] - Optional user ID who created the bill (for variable bills)
+ * @param {Date} [params.customDueDate] - Optional custom due date
+ * @returns {Promise<Object>} - Created bill and charges
+ */
+async function createBill(params) {
+  const { 
+    service, 
+    baseAmount = service.amount, 
+    transaction: existingTransaction, 
+    createdBy = null,
+    customDueDate = null 
+  } = params;
+  
+  // Determine if we need to manage our own transaction
+  const useExistingTransaction = !!existingTransaction;
+  const transaction = existingTransaction || await sequelize.transaction();
+  
+  try {
+    // Set the due date to the service's dueDay in the current month
+    const today = new Date();
+    let dueDate = customDueDate;
+    
+    if (!dueDate) {
+      dueDate = new Date(today.getFullYear(), today.getMonth(), service.dueDay || 1);
+      // If dueDay has already passed this month, set due date to next month
+      if (dueDate < today) {
+        dueDate.setMonth(dueDate.getMonth() + 1);
+      }
+    }
+    
+    // Find all users in the house to distribute charges
+    const users = await User.findAll({
+      where: { houseId: service.houseId }
+    }, { transaction });
+    
+    if (!users.length) {
+      throw new Error('No users found for this house');
+    }
+    
+    const numberOfUsers = users.length;
+    const parsedBaseAmount = parseFloat(baseAmount);
+    
+    // Retrieve the current HouseStatusIndex for the house
+    const houseStatus = await HouseStatusIndex.findOne({
+      where: { houseId: service.houseId },
+      order: [['updatedAt', 'DESC']]
+    }, { transaction });
+    
+    const hsiScore = houseStatus ? houseStatus.score : 50;
+    
+    // Calculate the base service fee per user based on fee category
+    const baseServiceFeeRate = service.feeCategory === 'card' ? 2.00 : 0.00;
+    const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
+    
+    // Use the existing HSI service to calculate the fee multiplier
+    const feeMultiplier = hsiService.calculateFeeMultiplier(hsiScore);
+    
+    // Calculate the total service fee with HSI adjustment
+    const totalServiceFee = parseFloat((totalBaseServiceFee * feeMultiplier).toFixed(2));
+    
+    // Calculate the total bill amount including service fees
+    const totalAmount = parseFloat((parsedBaseAmount + totalServiceFee).toFixed(2));
+    
+    // Set the bill type based on the service type
+    let billType;
+    if (service.type === 'fixed_recurring') {
+      billType = 'fixed_recurring';
+    } else if (service.type === 'variable_recurring') {
+      billType = 'variable_recurring';
+    } else {
+      billType = 'regular';
+    }
+    
+    // Create the bill with the calculated amounts
+    const bill = await Bill.create({
+      houseId: service.houseId,
+      baseAmount: parsedBaseAmount,
+      serviceFeeTotal: totalServiceFee,
+      amount: totalAmount,
+      houseService_id: service.id,
+      name: service.name,
+      status: 'pending',
+      dueDate,
+      billType,
+      createdBy,
+      metadata: {
+        generatedAutomatically: !createdBy,
+        generatedAt: new Date(),
+        submittedByUserId: createdBy
+      }
+    }, { transaction });
+    
+    // Calculate each user's portion
+    const baseChargeAmount = parseFloat((parsedBaseAmount / numberOfUsers).toFixed(2));
+    const chargeServiceFee = parseFloat((totalServiceFee / numberOfUsers).toFixed(2));
+    
+    // Create charge data for each user
+    const chargeData = users.map((user) => ({
+      userId: user.id,
+      billId: bill.id,
+      baseAmount: baseChargeAmount,
+      serviceFee: chargeServiceFee,
+      amount: parseFloat((baseChargeAmount + chargeServiceFee).toFixed(2)),
+      name: service.name,
+      status: 'unpaid',
+      dueDate: bill.dueDate,
+      hsiAtTimeOfCharge: hsiScore,
+      pointsPotential: 2,
+      metadata: {
+        billType,
+        baseServiceFee: baseServiceFeeRate,
+        adjustedServiceFee: chargeServiceFee,
+        feeMultiplier: feeMultiplier
+      }
+    }));
+    
+    // Create all charges using bulkCreate for efficiency
+    const createdCharges = await Charge.bulkCreate(chargeData, { transaction });
+    
+    // Create notifications for each user
+    const notificationData = users.map((user) => ({
+      userId: user.id,
+      message: `You have a new charge of $${(baseChargeAmount + chargeServiceFee).toFixed(2)} for ${service.name}.`,
+      isRead: false,
+      metadata: {
+        type: 'new_charge',
+        billId: bill.id,
+        serviceId: service.id,
+        amount: baseChargeAmount + chargeServiceFee
+      }
+    }));
+    
+    await Notification.bulkCreate(notificationData, { transaction });
+    
+    // Update user balances using the finance service
+    for (const user of users) {
+      const userCharge = createdCharges.find(charge => charge.userId === user.id);
+      if (userCharge) {
+        await financeService.addUserCharge(
+          user.id,
+          userCharge.amount,
+          `${billType} charge for ${service.name}`,
+          transaction,
+          {
+            billId: bill.id,
+            chargeId: userCharge.id,
+            billType
+          }
+        );
+      }
+    }
+    
+    // Update house balance with total amount
+    await financeService.updateHouseBalance(
+      service.houseId,
+      totalAmount,
+      'CHARGE',
+      `${billType} bill: ${service.name}`,
+      transaction,
+      {
+        billId: bill.id,
+        billType,
+        serviceId: service.id
+      }
+    );
+    
+    // Commit transaction if we started it
+    if (!useExistingTransaction) {
+      await transaction.commit();
+    }
+    
+    return {
+      bill,
+      charges: createdCharges
+    };
+  } catch (error) {
+    // Only rollback if we started the transaction
+    if (!useExistingTransaction) {
+      await transaction.rollback();
+    }
+    console.error('Error creating bill:', error);
+    throw error;
+  }
+}
 
 /**
  * Service for handling bill generation and processing
  */
 const billService = {
+  /**
+   * Create a bill for a fixed recurring service
+   * Used by both the scheduler and manual API triggers
+   */
+  async createBillForFixedService(service, transaction = null) {
+    return createBill({
+      service,
+      transaction
+    });
+  },
+  
+  /**
+   * Create a bill for a variable recurring service
+   * Used when submitting variable bill amounts
+   */
+  async createBillForVariableService(service, amount, userId, transaction = null) {
+    return createBill({
+      service,
+      baseAmount: amount,
+      createdBy: userId,
+      transaction
+    });
+  },
+  
   /**
    * Generate bills for all active fixed recurring services
    * Should be called by a scheduler daily
@@ -55,7 +281,7 @@ const billService = {
         
         // Create the bill
         try {
-          const result = await createBillForFixedService(service);
+          const result = await this.createBillForFixedService(service);
           results.push({
             serviceId: service.id,
             serviceName: service.name,
@@ -434,103 +660,4 @@ const billService = {
   }
 };
 
-/**
- * Helper function to create a bill for a fixed recurring service
- */
-async function createBillForFixedService(service) {
-  const transaction = await sequelize.transaction();
-  
-  try {
-    // Set the due date to the service's dueDay in the current month
-    const today = new Date();
-    const dueDate = new Date(today.getFullYear(), today.getMonth(), service.dueDay || 1);
-    
-    // If dueDay has already passed this month, set due date to next month
-    if (dueDate < today) {
-      dueDate.setMonth(dueDate.getMonth() + 1);
-    }
-    
-    // Create the bill using the fixed amount from the service
-    const bill = await Bill.create({
-      houseId: service.houseId,
-      amount: service.amount,
-      houseService_id: service.id,
-      name: service.name,
-      status: 'pending',
-      dueDate,
-      billType: 'fixed_recurring',
-      metadata: {
-        generatedAutomatically: true,
-        generatedAt: new Date()
-      }
-    }, { transaction });
-    
-    // Find all users in the house to distribute charges
-    const users = await User.findAll({
-      where: { houseId: service.houseId }
-    }, { transaction });
-    
-    if (!users.length) {
-      throw new Error('No users found for this house');
-    }
-    
-    // Calculate individual charge amount
-    const chargeAmount = service.amount / users.length;
-    
-    // Create charges for each user
-    const charges = [];
-    for (const user of users) {
-      const charge = await Charge.create({
-        userId: user.id,
-        billId: bill.id,
-        amount: chargeAmount,
-        name: service.name,
-        status: 'unpaid',
-        dueDate: bill.dueDate
-      }, { transaction });
-      
-      charges.push(charge);
-      
-      // Create notification for each user
-      await Notification.create({
-        userId: user.id,
-        message: `You have a new charge of $${chargeAmount.toFixed(2)} for ${service.name}.`,
-        isRead: false,
-        metadata: {
-          type: 'new_charge',
-          chargeId: charge.id,
-          billId: bill.id,
-          amount: chargeAmount,
-          billType: 'fixed_recurring'
-        }
-      }, { transaction });
-      
-      // Update user balance if finance service exists
-      if (user.balance !== undefined) {
-        user.balance = (parseFloat(user.balance || 0) + parseFloat(chargeAmount)).toFixed(2);
-        await user.save({ transaction });
-      }
-    }
-    
-    // Update house balance if finance service exists
-    const house = await require('../models').House.findByPk(service.houseId, { transaction });
-    if (house && house.balance !== undefined) {
-      house.balance = (parseFloat(house.balance || 0) + parseFloat(service.amount)).toFixed(2);
-      await house.save({ transaction });
-    }
-    
-    await transaction.commit();
-    
-    return {
-      bill,
-      charges
-    };
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error creating bill for fixed service:', error);
-    throw error;
-  }
-}
-
-billService.createBillForFixedService = createBillForFixedService;
 module.exports = billService;

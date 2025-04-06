@@ -1,18 +1,14 @@
-// src/models/Bill.js
 module.exports = (sequelize, DataTypes) => {
   const Bill = sequelize.define('Bill', {
-    // Original amount field now represents the total (baseAmount + serviceFeeTotal)
     amount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false
     },
-    // New field: Original bill amount before service fees
     baseAmount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       comment: 'Original bill amount before service fees'
     },
-    // New field: Total service fees applied to the bill
     serviceFeeTotal: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
@@ -67,6 +63,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
+  // Associations
   Bill.associate = (models) => {
     Bill.belongsTo(models.House, { 
       foreignKey: 'houseId',
@@ -92,6 +89,28 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: 'SET NULL'
     });
   };
+
+  // Instance method to update status based on related charges
+  Bill.prototype.updateStatus = async function (transaction = null) {
+    const charges = await sequelize.models.Charge.findAll({
+      where: { billId: this.id },
+      transaction // 👈 THIS is the missing piece
+    });
+  
+    const allPaid = charges.every(charge => charge.status === 'paid');
+    const anyPaid = charges.some(charge => charge.status === 'paid');
+  
+    if (allPaid) {
+      this.status = 'paid';
+    } else if (anyPaid) {
+      this.status = 'partial_paid';
+    } else {
+      this.status = 'pending';
+    }
+  
+    await this.save({ transaction });
+  };
+  
 
   return Bill;
 };
