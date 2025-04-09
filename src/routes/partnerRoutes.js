@@ -23,6 +23,7 @@ router.post('/verify', authLimiter, catchAsync(partnerController.verifyPartner))
 router.post('/login', authLimiter, catchAsync(partnerController.login));
 router.post('/:partnerId/complete-registration', authLimiter, catchAsync(partnerController.completeRegistration));
 
+router.get('/by-api-key', catchAsync(partnerController.getPartnerByApiKey));
 // Group 3: Public information routes
 router.get('/', catchAsync(partnerController.getAllPartners));
 router.get('/:partnerId', catchAsync(partnerController.getPartnerById));
@@ -48,6 +49,7 @@ router.put('/update-marketplace',
   ]),
   catchAsync(partnerController.updateMarketplaceSettings)
 );
+
 
 // Group 5: Protected API routes (using API key authentication)
 router.get('/:partnerId/api-keys', authenticatePartner, catchAsync(partnerController.getApiKeys));

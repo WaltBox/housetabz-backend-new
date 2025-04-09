@@ -318,6 +318,58 @@ const partnerController = {
       res.status(500).json({ error: 'Failed to fetch partner' });
     }
   },
+
+  // Add this to your partnerController
+async getPartnerByApiKey(req, res) {
+  try {
+    const { apiKey } = req.query;
+    
+    if (!apiKey) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'API key is required' 
+      });
+    }
+
+    // Find the partner key first
+    const partnerKey = await PartnerKey.findOne({
+      where: { api_key: apiKey },
+      attributes: ['partnerId']
+    });
+    
+    if (!partnerKey) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Partner not found for the provided API key' 
+      });
+    }
+
+    // Get the partner information
+    const partner = await Partner.findByPk(partnerKey.partnerId, {
+      attributes: ['id', 'name'] // Only return minimal info needed
+    });
+    
+    if (!partner) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Partner record not found' 
+      });
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      partnerId: partner.id,
+      name: partner.name
+    });
+  } catch (error) {
+    console.error('Error looking up partner by API key:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to look up partner',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+},
   // Stage authorization
   async stageAuthorization(req, res) {
     try {

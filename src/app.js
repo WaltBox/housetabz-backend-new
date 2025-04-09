@@ -45,6 +45,7 @@ const memeQRCodeRoutes = require('./routes/memeQRCodeRoutes'); // Import the new
 const userFinanceRoutes = require('./routes/userFinanceRoutes');
 const houseFinanceRoutes = require('./routes/houseFinanceRoutes');
 const billSubmissionRoutes = require('./routes/billSubmissionRoutes');
+const botFilter = require('./middleware/security/botFilter');
 // Initialize Express app
 const app = express();
 
@@ -72,6 +73,17 @@ const corsOptions = {
   credentials: true
 };
 
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send(`User-agent: *
+Disallow: /api/
+Disallow: /admin/
+Disallow: /webhook/
+Allow: /health
+Allow: /`);
+});
+
+app.use(botFilter);
 app.use(cors(corsOptions));
 
 // Special handling for Stripe webhook endpoint

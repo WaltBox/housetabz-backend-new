@@ -149,61 +149,65 @@ const serviceRequestBundleController = {
     }
   },
 
-  async getServiceRequestBundleById(req, res) {
-    try {
-      const { id } = req.params;
-      console.log('[getServiceRequestBundleById] Fetching bundle with id:', id);
-      const serviceRequestBundle = await ServiceRequestBundle.findByPk(id, {
-        include: [
-          {
-            model: Task,
-            as: 'tasks',
-            include: [{
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username']
-            }]
-          },
-          {
+  // In src/controllers/serviceRequestBundleController.js
+async getServiceRequestBundleById(req, res) {
+  try {
+    // Convert id to integer to ensure proper type matching
+    const id = parseInt(req.params.id, 10);
+    console.log('[getServiceRequestBundleById] Fetching bundle with id:', id);
+    
+    const serviceRequestBundle = await ServiceRequestBundle.findByPk(id, {
+      include: [
+        {
+          model: Task,
+          as: 'tasks',
+          include: [{
             model: User,
-            as: 'creator',
+            as: 'user',
             attributes: ['id', 'username']
-          },
-          {
-            model: StagedRequest,
-            as: 'stagedRequest'
-          },
-          {
-            model: TakeOverRequest,
-            as: 'takeOverRequest'
-          },
-          {
-            model: VirtualCardRequest,
-            as: 'virtualCardRequest'
-          }
-        ]
-      });
-      
-      if (!serviceRequestBundle) {
-        console.log('[getServiceRequestBundleById] Bundle not found for id:', id);
-        return res.status(404).json({ error: 'Service request bundle not found' });
-      }
-      
-      console.log('[getServiceRequestBundleById] Bundle fetched:', serviceRequestBundle.id);
-      
-      res.status(200).json({
-        message: 'Service request bundle retrieved successfully',
-        serviceRequestBundle: {
-          ...serviceRequestBundle.toJSON(),
-          totalParticipants: serviceRequestBundle.tasks.length,
-          acceptedCount: serviceRequestBundle.tasks.filter(t => t.response === 'accepted').length
+          }]
+        },
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'username']
+        },
+        {
+          model: StagedRequest,
+          as: 'stagedRequest'
+        },
+        {
+          model: TakeOverRequest,
+          as: 'takeOverRequest'
+        },
+        {
+          model: VirtualCardRequest,
+          as: 'virtualCardRequest'
         }
-      });
-    } catch (error) {
-      console.error('[getServiceRequestBundleById] Error fetching service request bundle:', error);
-      res.status(500).json({ error: 'Failed to fetch service request bundle', details: error.message });
+      ]
+    });
+    
+    if (!serviceRequestBundle) {
+      console.log('[getServiceRequestBundleById] Bundle not found for id:', id);
+      return res.status(404).json({ error: 'Service request bundle not found' });
     }
-  },
+    
+    console.log('[getServiceRequestBundleById] Bundle fetched:', serviceRequestBundle.id);
+    
+    res.status(200).json({
+      message: 'Service request bundle retrieved successfully',
+      serviceRequestBundle: {
+        ...serviceRequestBundle.toJSON(),
+        totalParticipants: serviceRequestBundle.tasks.length,
+        acceptedCount: serviceRequestBundle.tasks.filter(t => t.response === 'accepted').length
+      }
+    });
+  } catch (error) {
+    console.error('[getServiceRequestBundleById] Error fetching service request bundle:', error);
+    res.status(500).json({ error: 'Failed to fetch service request bundle', details: error.message });
+  }
+},
+
 
   async updateServiceRequestBundle(req, res) {
     try {
