@@ -14,7 +14,7 @@ module.exports = (sequelize, DataTypes) => {
         unique: true
       },
       type: {
-        type: DataTypes.ENUM('card', 'bank_account'),
+        type: DataTypes.ENUM('card', 'bank_account', 'housetabz'),
         allowNull: false
       },
       last4: {
