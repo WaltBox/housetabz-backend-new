@@ -19,7 +19,7 @@ const { Op } = require('sequelize');
  * @param {Object} params.service - The service object for which to create a bill
  * @param {number} [params.baseAmount] - Optional override for the bill amount (used for variable bills)
  * @param {Object} [params.transaction] - Optional existing transaction
- * @param {string} [params.createdBy] - Optional user ID who created the bill (for variable bills)
+
  * @param {Date} [params.customDueDate] - Optional custom due date
  * @returns {Promise<Object>} - Created bill and charges
  */
@@ -28,7 +28,7 @@ async function createBill(params) {
     service, 
     baseAmount = service.amount, 
     transaction: existingTransaction, 
-    createdBy = null,
+
     customDueDate = null 
   } = params;
   
@@ -103,11 +103,11 @@ async function createBill(params) {
       status: 'pending',
       dueDate,
       billType,
-      createdBy,
+ 
       metadata: {
-        generatedAutomatically: !createdBy,
+        
         generatedAt: new Date(),
-        submittedByUserId: createdBy
+       
       }
     }, { transaction });
     
@@ -227,7 +227,7 @@ const billService = {
     return createBill({
       service,
       baseAmount: amount,
-      createdBy: userId,
+     
       transaction
     });
   },

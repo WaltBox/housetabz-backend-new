@@ -342,25 +342,43 @@ module.exports = (sequelize, DataTypes) => {
         ];
   
         if (stagedRequest) {
-          // For staged requests, update status and send webhook
+          // For staged requests, update status
           updates.push(stagedRequest.update({ status: 'authorized' }, { transaction }));
           
-          try {
-            await webhookService.sendWebhook(
-              stagedRequest.partnerId,
-              'request.authorized',
-              {
-                stagedRequestId: stagedRequest.id,
-                status: 'authorized',
-                transactionId: stagedRequest.transactionId,
-                serviceName: stagedRequest.serviceName,
-                serviceType: stagedRequest.serviceType,
-                estimatedAmount: stagedRequest.estimatedAmount,
-                requiredUpfrontPayment: stagedRequest.requiredUpfrontPayment
+          // Find the associated HouseService
+          const houseService = await sequelize.models.HouseService.findOne({
+            where: { serviceRequestBundleId: this.id },
+            transaction
+          });
+          
+          if (houseService) {
+            // Update HouseService status to active
+            updates.push(houseService.update({ status: 'active' }, { transaction }));
+            
+            // Prepare webhook to be sent after transaction commits
+            transaction.afterCommit(async () => {
+              try {
+                // Send request.authorized webhook with correct format
+                console.log(`Sending request.authorized webhook for houseTabzAgreementId: ${houseService.houseTabzAgreementId}`);
+                
+                await webhookService.sendWebhook(
+                  stagedRequest.partnerId,
+                  'request.authorized',
+                  {
+                    houseTabzAgreementId: houseService.houseTabzAgreementId,
+                    externalAgreementId: houseService.externalAgreementId || null,
+                    transactionId: stagedRequest.transactionId,
+                    status: 'authorized',
+                    serviceName: stagedRequest.serviceName,
+                    serviceType: stagedRequest.serviceType
+                  }
+                );
+              } catch (error) {
+                console.error('Error sending request.authorized webhook:', error);
               }
-            );
-          } catch (error) {
-            console.error('Webhook error:', error);
+            });
+          } else {
+            console.error(`HouseService not found for ServiceRequestBundle ${this.id}`);
           }
         } else if (virtualCardRequest) {
           // For virtual card requests, update status and create card
@@ -382,38 +400,21 @@ module.exports = (sequelize, DataTypes) => {
   
         await Promise.all(updates);
         
-        // IMPORTANT: Create HouseService if status changed to accepted
-        if (previousStatus !== 'accepted') {
+        // IMPORTANT: Update HouseService status if it exists
+        if (previousStatus !== 'accepted' && !houseService) {
           try {
-            console.log('Creating HouseService for bundle with id:', this.id);
+            // Find the existing HouseService (only if not already found above)
+            const houseService = await sequelize.models.HouseService.findOne({
+              where: { serviceRequestBundleId: this.id },
+              transaction
+            });
             
-            // Determine the service type based on the request type
-            let serviceType = 'marketplace_onetime'; // Default
-            if (takeOverRequest) {
-              serviceType = takeOverRequest.serviceType === 'fixed' ? 'fixed_recurring' : 'variable_recurring';
-            }
-            
-            // Make sure this.type is set
-            if (!this.type && serviceType) {
-              await this.update({ type: serviceType }, { transaction });
-            }
-            
-            // Create HouseService - if we're in a transaction, we'll do this after the transaction commits
-            if (transaction) {
-              transaction.afterCommit(async () => {
-                try {
-                  await createHouseServiceFromBundle(this.id, sequelize);
-                } catch (error) {
-                  console.error('Error creating HouseService after transaction:', error);
-                }
-              });
-            } else {
-              // No transaction, create immediately
-              await createHouseServiceFromBundle(this.id, sequelize);
+            if (houseService) {
+              await houseService.update({ status: 'active' }, { transaction });
+              console.log(`Updated HouseService ID ${houseService.id} status to active`);
             }
           } catch (error) {
-            console.error('Error setting up HouseService creation:', error);
-            // Non-critical error, don't throw
+            console.error('Error updating HouseService status:', error);
           }
         }
       }

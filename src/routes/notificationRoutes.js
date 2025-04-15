@@ -1,109 +1,59 @@
+// routes/notificationRoutes.js
 const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/notificationController');
 const { authenticateUser } = require('../middleware/auth/userAuth');
-const { catchAsync } = require('../middleware/errorHandler');
 
-/**
- * @swagger
- * /users/{userId}/notifications:
- *   get:
- *     summary: Get all notifications for a user
- *     description: Fetch all notifications for a specific user, ordered by creation date.
- *     tags: [Notifications]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema:
- *           type: integer
- *         description: The ID of the user.
- *     responses:
- *       200:
- *         description: List of notifications.
- *       404:
- *         description: User not found or no notifications.
- *       500:
- *         description: Server error.
- */
-router.get(
-  '/users/:userId/notifications', 
-  authenticateUser, 
-  catchAsync(notificationController.getNotificationsForUser)
-);
+// Get all notifications for a user
+router.get('/users/:userId/notifications', authenticateUser, notificationController.getNotificationsForUser);
 
-/**
- * @swagger
- * /users/{userId}/notifications/{notificationId}:
- *   get:
- *     summary: Get a specific notification for a user
- *     description: Fetch a single notification for a user by ID.
- *     tags: [Notifications]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema:
- *           type: integer
- *         description: The ID of the user.
- *       - in: path
- *         name: notificationId
- *         required: true
- *         schema:
- *           type: integer
- *         description: The ID of the notification.
- *     responses:
- *       200:
- *         description: A notification object.
- *       404:
- *         description: Notification not found.
- *       500:
- *         description: Server error.
- */
-router.get(
-  '/users/:userId/notifications/:notificationId', 
-  authenticateUser, 
-  catchAsync(notificationController.getNotificationById)
-);
+// Get a specific notification
+router.get('/users/:userId/notifications/:notificationId', authenticateUser, notificationController.getNotificationById);
 
-/**
- * @swagger
- * /users/{userId}/notifications/{notificationId}:
- *   patch:
- *     summary: Mark a notification as read
- *     description: Update a notification's `isRead` status to true.
- *     tags: [Notifications]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema:
- *           type: integer
- *         description: The ID of the user.
- *       - in: path
- *         name: notificationId
- *         required: true
- *         schema:
- *           type: integer
- *         description: The ID of the notification.
- *     responses:
- *       200:
- *         description: Notification marked as read.
- *       404:
- *         description: Notification not found.
- *       500:
- *         description: Server error.
- */
-router.patch(
-  '/users/:userId/notifications/:notificationId', 
-  authenticateUser, 
-  catchAsync(notificationController.markAsRead)
-);
+// Mark a notification as read
+router.put('/users/:userId/notifications/:notificationId/read', authenticateUser, notificationController.markAsRead);
 
+// Register device token for push notifications
+router.post('/users/device-token', authenticateUser, notificationController.registerDeviceToken);
+
+// Unregister device token
+router.delete('/users/device-token', authenticateUser, notificationController.unregisterDeviceToken);
+
+// Create notification (admin/system endpoint)
+router.post('/notifications', notificationController.createNotification);
+
+router.post('/test-push', authenticateUser, async (req, res, next) => {
+  try {
+    // Send to the current user
+    const userId = req.user.id;
+    
+    // Create a test notification
+    const notificationData = {
+      userId,
+      title: 'Test Notification',
+      message: 'This is a test push notification from HouseTabz!',
+      type: 'test',
+      data: {
+        testTimestamp: new Date().toISOString()
+      }
+    };
+    
+    // Use your existing createNotification function
+    await notificationController.createNotification(
+      { body: notificationData },
+      { 
+        status: function() { 
+          return this; 
+        }, 
+        json: function(data) { 
+          res.status(201).json(data); 
+        } 
+      },
+      next
+    );
+  } catch (error) {
+    console.error('Error sending test notification:', error);
+    res.status(500).json({ error: 'Failed to send test notification' });
+  }
+});
 module.exports = router;

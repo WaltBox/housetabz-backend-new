@@ -6,7 +6,7 @@ const router = express.Router();
 // Import controllers
 const partnerController = require('../controllers/partnerController');
 const stagedRequestController = require('../controllers/stagedRequestController');
-
+const partnerBillController = require('../controllers/partnerBillController');
 // Import new middleware
 const { authenticatePartner } = require('../middleware/auth/partnerAuth');
 const { authenticateWebhook } = require('../middleware/auth/webhookAuth');
@@ -59,6 +59,17 @@ router.get('/webhookLogs/:id', authenticatePartner, catchAsync(partnerController
 router.post('/:partnerId/staged-request', 
   authenticatePartner,
   catchAsync(stagedRequestController.createStagedRequest)
+);
+
+router.post('/bills', 
+  authenticatePartner,
+  catchAsync(partnerBillController.createBill)
+);
+
+
+router.patch('/bills/:externalBillId', 
+  authenticatePartner,
+  catchAsync(partnerBillController.updateBill)
 );
 
 module.exports = router;
