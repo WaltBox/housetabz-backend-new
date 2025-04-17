@@ -13,11 +13,10 @@ module.exports = (sequelize, DataTypes) => {
       comment: 'HouseTabz UUID shared with partners (agreement reference)'
     },
     
-
     externalAgreementId: {
       type: DataTypes.STRING,
       allowNull: true,
-      comment: 'Partner’s internal ID for the agreement/account'
+      comment: 'Partners internal ID for the agreement/account'
     },
 
     name: {
@@ -40,7 +39,7 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.ENUM('active', 'inactive', 'pending', 'cancelled'),
       allowNull: false,
-      defaultValue: 'pending'  // Change default to 'pending' since that's what we want for new services
+      defaultValue: 'pending'  // Re-added the default value
     },
 
     amount: {
@@ -105,6 +104,8 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSONB,
       defaultValue: {}
     }
+  }, {
+    tableName: 'HouseServices'  // Explicitly specify the table name to match what's in the database
   });
 
   HouseService.associate = (models) => {

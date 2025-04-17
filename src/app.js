@@ -45,7 +45,9 @@ const memeQRCodeRoutes = require('./routes/memeQRCodeRoutes'); // Import the new
 const userFinanceRoutes = require('./routes/userFinanceRoutes');
 const houseFinanceRoutes = require('./routes/houseFinanceRoutes');
 const billSubmissionRoutes = require('./routes/billSubmissionRoutes');
+const feedbackRoutes = require('./routes/feedbackRoutes');
 const botFilter = require('./middleware/security/botFilter');
+
 // Initialize Express app
 const app = express();
 
@@ -139,6 +141,7 @@ app.use('/api/meme-qr-codes', memeQRCodeRoutes);
 app.use('/api', userFinanceRoutes);
 app.use('/api', houseFinanceRoutes);
 app.use('/api', billSubmissionRoutes);
+app.use('/api', feedbackRoutes )
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {

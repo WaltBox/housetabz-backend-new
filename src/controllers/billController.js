@@ -1,4 +1,3 @@
-// src/controllers/billController.js
 const { 
   Bill, 
   Charge, 
@@ -14,14 +13,16 @@ const {
 const billService = require('../services/billService');
 const { Op } = require('sequelize');
 const { createLogger } = require('../utils/logger');
-
 const logger = createLogger('bill-controller');
 
+/**
+ * Create a new bill along with charges and notifications.
+ * The billService handles both in-app and push notifications.
+ */
 exports.createBill = async (req, res, next) => {
-  const { houseId }       = req.params;
+  const { houseId } = req.params;
   const { amount, houseServiceId, billType, dueDate } = req.body;
 
-  // Basic payload validation
   if (!houseServiceId) {
     return res.status(400).json({ error: 'houseServiceId is required' });
   }
@@ -30,7 +31,7 @@ exports.createBill = async (req, res, next) => {
   }
 
   try {
-    // Fetch and verify the service belongs to this house
+    // Verify that the service belongs to the specified house
     const houseService = await HouseService.findByPk(houseServiceId);
     if (!houseService || String(houseService.houseId) !== houseId) {
       return res.status(404).json({ error: 'HouseService not found for this house' });
@@ -39,25 +40,27 @@ exports.createBill = async (req, res, next) => {
     // Start a transaction
     const transaction = await sequelize.transaction();
     try {
-      // Centralized creation logic
+      // Call the bill service to create the bill. The service will handle notifications.
       const result = await billService.createBill({
-        service:      houseService,
-        baseAmount:   amount,
+        service: houseService,
+        baseAmount: amount,
         transaction,
         customDueDate: dueDate ? new Date(dueDate) : null,
-        billType      // if your service supports custom types
+        billType
       });
 
+      // Commit the transaction; afterCommit hooks in the bill service will send push notifications.
       await transaction.commit();
+
       return res.status(201).json({
         message: 'Bill, charges, and notifications created successfully',
-        bill:    result.bill,
+        bill: result.bill,
         charges: result.charges
       });
     } catch (err) {
       await transaction.rollback();
       logger.error('Error in transaction:', err);
-      throw err;
+      next(err);
     }
   } catch (err) {
     logger.error('Error creating bill:', err);
@@ -65,12 +68,15 @@ exports.createBill = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all bills for a specified house, with optional filtering by bill type.
+ */
 exports.getBillsForHouse = async (req, res, next) => {
   try {
     const { houseId } = req.params;
     const { billType } = req.query;
 
-    // Authorization check: Ensure user belongs to this house
+    // Authorization: Ensure the user belongs to the requested house.
     if (req.user.houseId != houseId) {
       return res.status(403).json({ error: 'Unauthorized access to house bills' });
     }
@@ -108,11 +114,8 @@ exports.getBillsForHouse = async (req, res, next) => {
       order: [['createdAt', 'DESC']]
     });
 
-    // Get the house finance info to include the balance
-    const houseFinance = await HouseFinance.findOne({
-      where: { houseId }
-    });
-
+    // Get the house finance info to include the balance.
+    const houseFinance = await HouseFinance.findOne({ where: { houseId } });
     res.status(200).json({
       bills,
       houseBalance: houseFinance ? houseFinance.balance : 0
@@ -123,21 +126,19 @@ exports.getBillsForHouse = async (req, res, next) => {
   }
 };
 
+/**
+ * Get only paid bills for the specified house.
+ */
 exports.getPaidBillsForHouse = async (req, res) => {
   try {
     const { houseId } = req.params;
-    
-    // Authorization check: Ensure user belongs to this house
+
     if (req.user.houseId != houseId) {
       return res.status(403).json({ error: 'Unauthorized access to house bills' });
     }
-    
-    // Only include bills that have a status of 'paid'
+
     const bills = await Bill.findAll({
-      where: {
-        houseId,
-        status: 'paid'
-      }
+      where: { houseId, status: 'paid' }
     });
 
     if (!bills || bills.length === 0) {
@@ -146,16 +147,18 @@ exports.getPaidBillsForHouse = async (req, res) => {
 
     res.status(200).json(bills);
   } catch (error) {
-    console.error('Error fetching paid bills for house:', error);
+    logger.error('Error fetching paid bills for house:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+/**
+ * Get a specific bill for a house.
+ */
 exports.getBillForHouse = async (req, res, next) => {
   try {
     const { houseId, billId } = req.params;
 
-    // Authorization check: Ensure user belongs to this house
     if (req.user.houseId != houseId) {
       return res.status(403).json({ error: 'Unauthorized access to house bill' });
     }
@@ -175,7 +178,7 @@ exports.getBillForHouse = async (req, res, next) => {
           include: [
             {
               model: User,
-              attributes: ['id', 'username'],
+              attributes: ['id', 'username']
             },
           ],
         },
@@ -203,27 +206,27 @@ exports.getBillForHouse = async (req, res, next) => {
   }
 };
 
+/**
+ * Generate fixed recurring bills. Admins can generate for all houses by setting houseId to '0'.
+ */
 exports.generateFixedBills = async (req, res, next) => {
   try {
     const { houseId } = req.params;
-    
-    // Admin operation - check for admin role or house ownership
-    // For specific house, user must belong to that house
+
+    // Authorization: Check if the user is admin or belongs to the specified house.
     if (houseId !== '0' && req.user.houseId != houseId && !req.user.isAdmin) {
       return res.status(403).json({ error: 'Unauthorized to generate bills for this house' });
     }
-    
-    // For all houses, user must be admin
     if (houseId === '0' && !req.user.isAdmin) {
       return res.status(403).json({ error: 'Only administrators can generate bills for all houses' });
     }
-    
+
     let result;
     if (houseId === '0') {
-      // Generate bills for all houses
+      // Generate bills for all houses.
       result = await billService.generateFixedRecurringBills();
     } else {
-      // Generate bills for a specific house
+      // Generate bills for a specific house.
       const services = await HouseService.findAll({
         where: {
           houseId,
@@ -231,11 +234,10 @@ exports.generateFixedBills = async (req, res, next) => {
           type: 'fixed_recurring'
         }
       });
-      
+
       const results = [];
       for (const service of services) {
         try {
-          // Use the refactored service function
           const billResult = await billService.createBillForFixedService(service);
           results.push({
             serviceId: service.id,
@@ -254,7 +256,6 @@ exports.generateFixedBills = async (req, res, next) => {
           });
         }
       }
-      
       result = {
         processedCount: services.length,
         successCount: results.filter(r => r.success).length,
@@ -262,64 +263,54 @@ exports.generateFixedBills = async (req, res, next) => {
         results
       };
     }
-    
+
     res.status(200).json(result);
   } catch (error) {
     logger.error('Error generating fixed bills:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate fixed bills',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Failed to generate fixed bills', details: error.message });
   }
 };
 
+/**
+ * Submit a variable bill amount.
+ */
 exports.submitVariableBillAmount = async (req, res) => {
   try {
     const { serviceId } = req.params;
     const { amount, userId } = req.body;
-    
-    // Authorization check: Ensure the authenticated user matches the userId being passed
+
+    // Authorization: The authenticated user must match the userId provided.
     if (req.user.id != userId) {
       return res.status(403).json({ error: 'Unauthorized to submit bill on behalf of another user' });
     }
-    
     if (!serviceId || !amount || !userId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    
+
     const service = await HouseService.findByPk(serviceId);
     if (!service) {
       return res.status(404).json({ error: 'Service not found' });
     }
-    
-    // Authorization check: Ensure user belongs to the house this service is for
     if (req.user.houseId != service.houseId) {
       return res.status(403).json({ error: 'Service does not belong to your house' });
     }
-    
     if (service.type !== 'variable_recurring') {
       return res.status(400).json({ error: 'Service is not a variable recurring service' });
     }
-    
     if (service.designatedUserId && service.designatedUserId !== parseInt(userId)) {
-      return res.status(403).json({ 
-        error: 'Only the designated user can submit bill amounts for this service' 
-      });
+      return res.status(403).json({ error: 'Only the designated user can submit bill amounts for this service' });
     }
 
     const transaction = await sequelize.transaction();
-    
     try {
-      // Use the refactored service for variable bill creation
       const result = await billService.createBillForVariableService(
         service,
         amount,
         userId,
         transaction
       );
-      
       await transaction.commit();
-      
+
       return res.status(201).json({
         message: 'Variable bill created successfully',
         bill: result.bill,
@@ -331,44 +322,42 @@ exports.submitVariableBillAmount = async (req, res) => {
     }
   } catch (error) {
     logger.error('Error submitting variable bill amount:', error);
-    res.status(500).json({ 
-      error: 'Failed to submit variable bill amount',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Failed to submit variable bill amount', details: error.message });
   }
 };
 
+/**
+ * Generate variable service reminders.
+ * This endpoint is for admin use.
+ */
 exports.generateVariableReminders = async (req, res) => {
   try {
-    // Admin operation - check for admin role
     if (!req.user.isAdmin) {
       return res.status(403).json({ error: 'Only administrators can generate variable reminders' });
     }
-    
+
     const result = await billService.generateVariableServiceReminders();
     res.status(200).json(result);
   } catch (error) {
     logger.error('Error generating variable service reminders:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate variable service reminders',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Failed to generate variable service reminders', details: error.message });
   }
 };
 
+/**
+ * Retrieve variable recurring services assigned to a user.
+ */
 exports.getUserVariableServices = async (req, res) => {
   try {
     const { userId } = req.query;
-    
-    // Authorization check: Ensure the authenticated user matches the requested userId
+
     if (req.user.id != userId) {
       return res.status(403).json({ error: 'Unauthorized access to user services' });
     }
-    
     if (!userId) {
       return res.status(400).json({ error: 'Missing required userId parameter' });
     }
-    
+
     const services = await HouseService.findAll({
       where: {
         type: 'variable_recurring',
@@ -381,21 +370,18 @@ exports.getUserVariableServices = async (req, res) => {
         attributes: ['id', 'username', 'email']
       }]
     });
-    
+
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    
+
     const servicesWithBillStatus = await Promise.all(services.map(async (service) => {
       const existingBill = await Bill.findOne({
         where: {
           houseService_id: service.id,
           billType: 'variable_recurring',
-          createdAt: {
-            [Op.gte]: firstDayOfMonth
-          }
+          createdAt: { [Op.gte]: firstDayOfMonth }
         }
       });
-      
       return {
         ...service.toJSON(),
         hasBillThisMonth: !!existingBill,
@@ -407,17 +393,14 @@ exports.getUserVariableServices = async (req, res) => {
         } : null
       };
     }));
-    
+
     res.status(200).json({
       message: 'Variable services retrieved successfully',
       services: servicesWithBillStatus
     });
   } catch (error) {
     logger.error('Error fetching user variable services:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch variable services',
-      details: error.message
-    });
+    res.status(500).json({ error: 'Failed to fetch variable services', details: error.message });
   }
 };
 

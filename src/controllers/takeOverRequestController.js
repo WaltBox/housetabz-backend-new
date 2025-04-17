@@ -1,8 +1,17 @@
-// src/controllers/takeOverRequestController.js
-const { TakeOverRequest, ServiceRequestBundle, User, Task } = require('../models');
+const { 
+  TakeOverRequest, 
+  ServiceRequestBundle, 
+  User, 
+  Task, 
+  HouseService, 
+  sequelize 
+} = require('../models');
+const { v4: uuidv4 } = require('uuid');
 
 const takeOverRequestController = {
   async createTakeOverRequest(req, res) {
+    const transaction = await sequelize.transaction();
+    
     try {
       const { 
         serviceName,
@@ -17,21 +26,31 @@ const takeOverRequestController = {
       // Determine service and bundle types based on isFixedService flag
       const serviceType = isFixedService ? 'fixed' : 'variable';
       const bundleType = isFixedService ? 'fixed_recurring' : 'variable_recurring';
+      // Map to HouseService type
+      const houseServiceType = isFixedService ? 'fixed_recurring' : 'variable_recurring';
   
       // Validate input - requirements vary based on service type
       if (!serviceName || !accountNumber || !dueDate || !userId) {
+        await transaction.rollback();
         return res.status(400).json({ error: 'Missing required fields' });
       }
   
       // For fixed services, monthlyAmount is required
       if (isFixedService && !monthlyAmount) {
+        await transaction.rollback();
         return res.status(400).json({ error: 'Monthly amount is required for fixed services' });
       }
   
       // Fetch user and their houseId
-      const user = await User.findByPk(userId);
+      const user = await User.findByPk(userId, { transaction });
       if (!user) {
+        await transaction.rollback();
         return res.status(404).json({ error: 'User not found' });
+      }
+      
+      if (!user.houseId) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'User must be part of a house' });
       }
   
       // Calculate createDay or reminderDay based on service type
@@ -39,7 +58,7 @@ const takeOverRequestController = {
       let reminderDay = null;
       
       if (dueDate) {
-        const dueDateNum = parseInt(dueDate);
+        const dueDateNum = parseInt(dueDate, 10);
         
         if (isFixedService) {
           // For fixed recurring: Calculate createDay (approximately 2 weeks before dueDay)
@@ -71,7 +90,7 @@ const takeOverRequestController = {
         requiredUpfrontPayment: requiredUpfrontPayment || 0,
         serviceType,
         status: 'pending'
-      });
+      }, { transaction });
   
       // Create the ServiceRequestBundle with metadata including createDay or reminderDay
       const metadata = isFixedService
@@ -86,11 +105,35 @@ const takeOverRequestController = {
         totalPaidUpfront: 0,
         type: bundleType,
         metadata
-      });
+      }, { transaction });
+      
+      // Generate houseTabzAgreementId
+      const houseTabzAgreementId = uuidv4();
+      
+      // Create HouseService with pending status
+      const houseService = await HouseService.create({
+        houseTabzAgreementId,
+        name: serviceName,
+        type: houseServiceType,
+        billingSource: 'housetabz',
+        status: 'pending',
+        houseId: user.houseId,
+        serviceRequestBundleId: serviceRequestBundle.id,
+        accountNumber,
+        amount: isFixedService ? monthlyAmount : null,
+        dueDay: parseInt(dueDate, 10),
+        createDay: isFixedService ? createDay : null,
+        reminderDay: !isFixedService ? reminderDay : null,
+        designatedUserId: userId,
+        metadata: {
+          serviceType
+        }
+      }, { transaction });
   
       // Fetch all roommates including the creator
       const allRoommates = await User.findAll({
-        where: { houseId: user.houseId }
+        where: { houseId: user.houseId },
+        transaction
       });
   
       // Calculate individual payment if required
@@ -127,18 +170,38 @@ const takeOverRequestController = {
         totalMonthlyAmount: monthlyAmount
       });
   
-      const createdTasks = await Task.bulkCreate(tasks);
+      const createdTasks = await Task.bulkCreate(tasks, { transaction, individualHooks: true });
+
+      
+      // Commit transaction
+      await transaction.commit();
+  
+      // Build detailed takeOverRequest object that the frontend expects
+      const detailedTakeOverRequest = {
+        serviceName,
+        accountNumber,
+        monthlyAmount: isFixedService ? monthlyAmount : null,
+        dueDate,
+        requiredUpfrontPayment: requiredUpfrontPayment || 0,
+        serviceType,
+        createDay: isFixedService ? createDay : null,
+        reminderDay: !isFixedService ? reminderDay : null
+      };
   
       res.status(201).json({
         message: 'Take over request and service request bundle created successfully',
-        takeOverRequest,
-        serviceRequestBundle,
-        tasks: createdTasks,
+        takeOverRequest: detailedTakeOverRequest,
+        takeOverRequestId: takeOverRequest.id,
+        serviceRequestBundleId: serviceRequestBundle.id,
+        houseServiceId: houseService.id,
+        houseTabzAgreementId,
+        tasks: createdTasks.length,
         serviceType,
         createDay,
         reminderDay
       });
     } catch (error) {
+      await transaction.rollback();
       console.error('Error creating take over request:', error);
       res.status(500).json({ 
         error: 'Failed to create take over request',
@@ -156,15 +219,21 @@ const takeOverRequestController = {
           model: ServiceRequestBundle,
           as: 'serviceRequestBundle',
           where: houseId ? { houseId } : {},
-          include: [{ 
-            model: Task,
-            as: 'tasks',
-            include: [{
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username']
-            }]
-          }]
+          include: [
+            { 
+              model: Task,
+              as: 'tasks',
+              include: [{
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              }]
+            },
+            {
+              model: HouseService,
+              as: 'houseService'
+            }
+          ]
         }]
       });
 
@@ -200,6 +269,10 @@ const takeOverRequestController = {
               model: User,
               as: 'creator',
               attributes: ['id', 'username']
+            },
+            {
+              model: HouseService,
+              as: 'houseService'
             }
           ]
         }]
@@ -232,14 +305,34 @@ const takeOverRequestController = {
         return res.status(400).json({ error: 'Status is required' });
       }
 
-      const takeOverRequest = await TakeOverRequest.findByPk(id);
+      const takeOverRequest = await TakeOverRequest.findByPk(id, {
+        include: [
+          {
+            model: ServiceRequestBundle,
+            as: 'serviceRequestBundle',
+            include: [
+              {
+                model: HouseService,
+                as: 'houseService'
+              }
+            ]
+          }
+        ]
+      });
 
       if (!takeOverRequest) {
         return res.status(404).json({ error: 'Take over request not found' });
       }
 
-      takeOverRequest.status = status;
-      await takeOverRequest.save();
+      await takeOverRequest.update({ status });
+
+      // If status is rejected and there's a HouseService, update it too
+      if (status === 'rejected' && 
+          takeOverRequest.serviceRequestBundle &&
+          takeOverRequest.serviceRequestBundle.houseService) {
+        
+        await takeOverRequest.serviceRequestBundle.houseService.update({ status: 'cancelled' });
+      }
 
       res.status(200).json({
         message: 'Take over request status updated successfully',

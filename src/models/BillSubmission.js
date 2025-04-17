@@ -74,5 +74,31 @@ module.exports = (sequelize, DataTypes) => {
     modelName: 'BillSubmission',
   });
 
+  // Add an afterCreate hook to send a push notification whenever a bill submission is created
+  BillSubmission.addHook('afterCreate', async (billSubmission, options) => {
+    try {
+      // Lazy require to avoid circular dependencies
+      const pushNotificationService = require('../services/pushNotificationService');
+
+      // Retrieve the user associated with this bill submission
+      const user = await billSubmission.getUser({ transaction: options.transaction });
+      if (user) {
+        // Customize the push notification message
+        const message = "Heads up! You have a new bill submission. Please review it and take action.";
+        const title = "New Bill Submission";
+
+        await pushNotificationService.sendPushNotification(user, {
+          title,
+          message,
+          data: {
+            billSubmissionId: billSubmission.id
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error sending push notification for BillSubmission:', error);
+    }
+  });
+
   return BillSubmission;
 };

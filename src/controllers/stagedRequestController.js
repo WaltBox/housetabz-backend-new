@@ -135,7 +135,8 @@ const stagedRequestController = {
       });
    
       // Create all tasks in the database
-      const createdTasks = await Task.bulkCreate(tasks, { transaction });
+      const createdTasks = await Task.bulkCreate(tasks, { transaction, individualHooks: true });
+
    
       // Commit transaction
       await transaction.commit();

@@ -68,7 +68,7 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  // Before saving, update task status based on paymentStatus and response changes.
+  // Existing hooks for beforeSave and afterSave...
   Task.addHook('beforeSave', async (task, options) => {
     if (task.changed('paymentStatus') && task.paymentStatus === 'completed') {
       if (task.response === 'accepted') {
@@ -85,7 +85,6 @@ module.exports = (sequelize, DataTypes) => {
     }
   });
 
-  // After saving a task, update the related ServiceRequestBundle accordingly.
   Task.addHook('afterSave', async (task, options) => {
     let transaction = options.transaction;
     let localTransaction = false;
@@ -96,7 +95,6 @@ module.exports = (sequelize, DataTypes) => {
     }
 
     try {
-      // If payment status changed to completed (and payment is required), update the bundle's paid total.
       if (task.changed('paymentStatus') &&
           task.paymentStatus === 'completed' &&
           task.paymentRequired) {
@@ -120,7 +118,6 @@ module.exports = (sequelize, DataTypes) => {
         }
       }
 
-      // If the task's status or response has changed, check if the bundle should update.
       if (task.changed('status') || task.changed('response')) {
         const bundle = await task.getServiceRequestBundle({
           transaction,
@@ -139,7 +136,6 @@ module.exports = (sequelize, DataTypes) => {
         if (bundle) {
           if (task.response === 'rejected') {
             await bundle.update({ status: 'rejected' }, { transaction });
-            
             if (bundle.stagedRequest) {
               await bundle.stagedRequest.update({ status: 'rejected' }, { transaction });
             }
@@ -159,6 +155,31 @@ module.exports = (sequelize, DataTypes) => {
       throw error;
     }
   });
+
+  // Newly added afterCreate hook for sending push notifications
+  // Newly added afterCreate hook for sending push notifications
+Task.addHook('afterCreate', async (task, options) => {
+  try {
+    // Only push if task.status is false (i.e. not yet complete)
+    if (task.status === false) {
+      const pushNotificationService = require('../services/pushNotificationService');
+      
+      // Retrieve the associated user
+      const user = await task.getUser();
+      if (user) {
+        const message = "Heads up! You have a new task awaiting your action. Tap to review and get started.";
+        await pushNotificationService.sendPushNotification(user, {
+          title: "New Task Alert",
+          message,
+          data: { taskId: task.id }
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error sending push notification in Task.afterCreate hook:', error);
+  }
+});
+
 
   Task.associate = (models) => {
     Task.belongsTo(models.ServiceRequestBundle, {

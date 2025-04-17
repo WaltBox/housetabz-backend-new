@@ -114,7 +114,8 @@ const serviceRequestBundleController = {
       });
 
       console.log('[createServiceRequestBundle] Creating tasks for all roommates');
-      const createdTasks = await Task.bulkCreate(tasks);
+      const createdTasks = await Task.bulkCreate(tasks, { transaction, individualHooks: true });
+
       console.log('[createServiceRequestBundle] Tasks created:', createdTasks.length);
 
       res.status(201).json({

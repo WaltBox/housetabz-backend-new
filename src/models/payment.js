@@ -1,14 +1,7 @@
-// Updated Payment model with TEXT type for errorMessage
+// src/models/Payment.js
 module.exports = (sequelize, DataTypes) => {
   const Payment = sequelize.define('Payment', {
-    taskId: {
-      type: DataTypes.INTEGER,
-      allowNull: true, // Allow null taskId
-      references: {
-        model: 'Tasks',
-        key: 'id'
-      }
-    },
+    // Removed taskId since we're no longer associating Payments with Tasks.
     userId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -41,7 +34,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     errorMessage: {
-      type: DataTypes.TEXT, // Changed from STRING to TEXT
+      type: DataTypes.TEXT,
       allowNull: true
     },
     retryCount: {
@@ -66,20 +59,17 @@ module.exports = (sequelize, DataTypes) => {
     indexes: [
       { fields: ['status'] },
       { fields: ['stripePaymentIntentId'] },
-      { fields: ['userId'] },
-      { fields: ['taskId'] }
+      { fields: ['userId'] }
+      // Removed the index on taskId
     ]
   });
 
   Payment.associate = (models) => {
-    Payment.belongsTo(models.Task, {
-      foreignKey: 'taskId',
-      as: 'task'
-    });
     Payment.belongsTo(models.User, {
       foreignKey: 'userId',
       as: 'user'
     });
+    // Removed association to Task
   };
 
   return Payment;

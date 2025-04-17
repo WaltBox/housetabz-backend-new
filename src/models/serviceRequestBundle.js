@@ -340,13 +340,16 @@ module.exports = (sequelize, DataTypes) => {
         const updates = [
           this.update({ status: 'accepted' }, { transaction })
         ];
+        
+        // Variable to keep track of house service to avoid duplicating lookups
+        let houseService = null;
   
         if (stagedRequest) {
           // For staged requests, update status
           updates.push(stagedRequest.update({ status: 'authorized' }, { transaction }));
           
           // Find the associated HouseService
-          const houseService = await sequelize.models.HouseService.findOne({
+          houseService = await sequelize.models.HouseService.findOne({
             where: { serviceRequestBundleId: this.id },
             transaction
           });
@@ -394,24 +397,38 @@ module.exports = (sequelize, DataTypes) => {
             throw error;
           }
         } else if (takeOverRequest) {
-          // For take over requests, just update the status
+          // For take over requests, update status and associated house service
           updates.push(takeOverRequest.update({ status: 'active' }, { transaction }));
+          
+          // Find the associated HouseService
+          houseService = await sequelize.models.HouseService.findOne({
+            where: { serviceRequestBundleId: this.id },
+            transaction
+          });
+          
+          if (houseService) {
+            // Update HouseService status to active
+            updates.push(houseService.update({ status: 'active' }, { transaction }));
+            console.log(`Updated HouseService ID ${houseService.id} status to active for takeOverRequest`);
+          } else {
+            console.error(`HouseService not found for TakeOverRequest bundle ${this.id}`);
+          }
         }
   
         await Promise.all(updates);
         
-        // IMPORTANT: Update HouseService status if it exists
+        // IMPORTANT: Update HouseService status if it exists and wasn't already updated
         if (previousStatus !== 'accepted' && !houseService) {
           try {
-            // Find the existing HouseService (only if not already found above)
-            const houseService = await sequelize.models.HouseService.findOne({
+            // Find the existing HouseService if we haven't already found it
+            const existingHouseService = await sequelize.models.HouseService.findOne({
               where: { serviceRequestBundleId: this.id },
               transaction
             });
             
-            if (houseService) {
-              await houseService.update({ status: 'active' }, { transaction });
-              console.log(`Updated HouseService ID ${houseService.id} status to active`);
+            if (existingHouseService) {
+              await existingHouseService.update({ status: 'active' }, { transaction });
+              console.log(`Updated HouseService ID ${existingHouseService.id} status to active (fallback path)`);
             }
           } catch (error) {
             console.error('Error updating HouseService status:', error);

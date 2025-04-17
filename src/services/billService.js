@@ -7,10 +7,12 @@ const {
   Notification, 
   BillSubmission, 
   HouseStatusIndex,
+  DeviceToken,
   sequelize 
 } = require('../models');
 const hsiService = require('./hsiService');
 const financeService = require('./financeService');
+const pushNotificationService = require('./pushNotificationService');
 const { Op } = require('sequelize');
 
 /**
@@ -19,7 +21,6 @@ const { Op } = require('sequelize');
  * @param {Object} params.service - The service object for which to create a bill
  * @param {number} [params.baseAmount] - Optional override for the bill amount (used for variable bills)
  * @param {Object} [params.transaction] - Optional existing transaction
-
  * @param {Date} [params.customDueDate] - Optional custom due date
  * @returns {Promise<Object>} - Created bill and charges
  */
@@ -28,7 +29,6 @@ async function createBill(params) {
     service, 
     baseAmount = service.amount, 
     transaction: existingTransaction, 
-
     customDueDate = null 
   } = params;
   
@@ -103,11 +103,8 @@ async function createBill(params) {
       status: 'pending',
       dueDate,
       billType,
- 
       metadata: {
-        
         generatedAt: new Date(),
-       
       }
     }, { transaction });
     
@@ -138,20 +135,49 @@ async function createBill(params) {
     // Create all charges using bulkCreate for efficiency
     const createdCharges = await Charge.bulkCreate(chargeData, { transaction });
     
-    // Create notifications for each user
-    const notificationData = users.map((user) => ({
-      userId: user.id,
-      message: `You have a new charge of $${(baseChargeAmount + chargeServiceFee).toFixed(2)} for ${service.name}.`,
-      isRead: false,
-      metadata: {
-        type: 'new_charge',
-        billId: bill.id,
-        serviceId: service.id,
-        amount: baseChargeAmount + chargeServiceFee
+    // Create notifications for each user and send push notifications
+    const notificationPromises = users.map(async (user) => {
+      const userCharge = createdCharges.find(charge => charge.userId === user.id);
+      const chargeAmount = (baseChargeAmount + chargeServiceFee).toFixed(2);
+      const notificationMessage = `You have a new charge of $${chargeAmount} for ${service.name}.`;
+      
+      // Create database notification
+      const notification = await Notification.create({
+        userId: user.id,
+        message: notificationMessage,
+        isRead: false,
+        metadata: {
+          type: 'new_charge',
+          billId: bill.id,
+          serviceId: service.id,
+          amount: baseChargeAmount + chargeServiceFee
+        }
+      }, { transaction });
+      
+      // Send push notification after transaction commits to ensure DB consistency
+      if (!useExistingTransaction) {
+        transaction.afterCommit(async () => {
+          try {
+            await pushNotificationService.sendPushNotification(user, {
+              title: 'New Charge',
+              message: notificationMessage,
+              data: {
+                type: 'new_charge',
+                billId: bill.id,
+                serviceId: service.id,
+                notificationId: notification.id
+              }
+            });
+          } catch (error) {
+            console.error(`Error sending push notification to user ${user.id}:`, error);
+          }
+        });
       }
-    }));
+      
+      return notification;
+    });
     
-    await Notification.bulkCreate(notificationData, { transaction });
+    const notifications = await Promise.all(notificationPromises);
     
     // Update user balances using the finance service
     for (const user of users) {
@@ -192,7 +218,8 @@ async function createBill(params) {
     
     return {
       bill,
-      charges: createdCharges
+      charges: createdCharges,
+      notifications
     };
   } catch (error) {
     // Only rollback if we started the transaction
@@ -200,6 +227,45 @@ async function createBill(params) {
       await transaction.rollback();
     }
     console.error('Error creating bill:', error);
+    throw error;
+  }
+}
+
+/**
+ * Helper function to send both database and push notifications
+ * @param {Object} user - User to send notification to
+ * @param {string} message - Notification message
+ * @param {Object} metadata - Notification metadata
+ * @param {string} pushTitle - Push notification title
+ * @param {Object} transaction - Optional transaction
+ */
+async function sendNotification(user, message, metadata, pushTitle, transaction = null) {
+  try {
+    // Create database notification
+    const notification = await Notification.create({
+      userId: user.id,
+      message,
+      isRead: false,
+      metadata
+    }, { transaction });
+    
+    // Send push notification - outside of transaction to avoid rollback issues
+    try {
+      await pushNotificationService.sendPushNotification(user, {
+        title: pushTitle,
+        message,
+        data: {
+          ...metadata,
+          notificationId: notification.id
+        }
+      });
+    } catch (error) {
+      console.error(`Error sending push notification to user ${user.id}:`, error);
+    }
+    
+    return notification;
+  } catch (error) {
+    console.error(`Error creating notification for user ${user.id}:`, error);
     throw error;
   }
 }
@@ -227,7 +293,6 @@ const billService = {
     return createBill({
       service,
       baseAmount: amount,
-     
       transaction
     });
   },
@@ -374,19 +439,22 @@ const billService = {
           continue;
         }
         
-        // Create a notification for the designated user
+        // Create notifications for the designated user
         try {
-          const notification = await Notification.create({
-            userId: service.designatedUser.id,
-            message: `It's time to enter the bill amount for ${service.name}. Please login to your service provider account and enter the current bill amount.`,
-            isRead: false,
-            metadata: {
-              type: 'variable_bill_reminder',
-              serviceId: service.id,
-              serviceName: service.name,
-              dueDay: service.dueDay
-            }
-          });
+          const message = `It's time to enter the bill amount for ${service.name}. Please login to your service provider account and enter the current bill amount.`;
+          const metadata = {
+            type: 'variable_bill_reminder',
+            serviceId: service.id,
+            serviceName: service.name,
+            dueDay: service.dueDay
+          };
+          
+          const notification = await sendNotification(
+            service.designatedUser,
+            message,
+            metadata,
+            'Bill Entry Reminder'
+          );
           
           results.push({
             serviceId: service.id,
@@ -523,17 +591,20 @@ const billService = {
             }
           });
           
-          // Create a notification for the designated user
-          await Notification.create({
-            userId: service.designatedUser.id,
-            message: `Please submit the ${service.name} bill amount for this month`,
-            isRead: false,
-            metadata: {
-              type: 'bill_submission',
-              billSubmissionId: submission.id,
-              serviceId: service.id
-            }
-          });
+          // Create notifications for the designated user
+          const message = `Please submit the ${service.name} bill amount for this month`;
+          const metadata = {
+            type: 'bill_submission',
+            billSubmissionId: submission.id,
+            serviceId: service.id
+          };
+          
+          const notification = await sendNotification(
+            service.designatedUser,
+            message,
+            metadata,
+            'Bill Submission Required'
+          );
           
           results.push({
             serviceId: service.id,
@@ -604,26 +675,32 @@ const billService = {
         });
         
         if (!recentNotification) {
-          // Create a reminder notification
+          // Calculate days until due
           const daysUntilDue = Math.round(
             (submission.dueDate - new Date()) / (24 * 60 * 60 * 1000)
           );
           
+          // Create reminder notification with appropriate urgency
           const message = daysUntilDue <= 1
             ? `URGENT: Please submit the ${submission.houseService.name} bill amount today!`
             : `Reminder: Please submit the ${submission.houseService.name} bill amount soon. It's due in ${daysUntilDue} days.`;
           
-          await Notification.create({
-            userId: submission.userId,
+          const metadata = {
+            type: 'bill_submission_reminder',
+            billSubmissionId: submission.id,
+            serviceId: submission.houseServiceId,
+            daysUntilDue
+          };
+          
+          // Determine push title based on urgency
+          const pushTitle = daysUntilDue <= 1 ? 'URGENT: Bill Submission' : 'Bill Submission Reminder';
+          
+          await sendNotification(
+            submission.user,
             message,
-            isRead: false,
-            metadata: {
-              type: 'bill_submission_reminder',
-              billSubmissionId: submission.id,
-              serviceId: submission.houseServiceId,
-              daysUntilDue
-            }
-          });
+            metadata,
+            pushTitle
+          );
           
           results.push({
             submissionId: submission.id,
@@ -657,10 +734,67 @@ const billService = {
       console.error('Error generating bill submission reminders:', error);
       throw error;
     }
+  },
+  
+  /**
+   * Send notification to users for a specific bill
+   * @param {number} billId - ID of the bill
+   * @param {string} message - Message to send
+   * @param {string} title - Title for push notification
+   */
+  async sendBillNotifications(billId, message, title) {
+    try {
+      const bill = await Bill.findByPk(billId, {
+        include: [
+          {
+            model: Charge,
+            as: 'charges',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username', 'email']
+              }
+            ]
+          }
+        ]
+      });
+      
+      if (!bill) {
+        throw new Error(`Bill with ID ${billId} not found`);
+      }
+      
+      const notifications = [];
+      
+      // Send notifications to all users with charges for this bill
+      for (const charge of bill.charges) {
+        const metadata = {
+          type: 'bill_notification',
+          billId: bill.id,
+          chargeId: charge.id,
+          amount: charge.amount
+        };
+        
+        const notification = await sendNotification(
+          charge.user,
+          message,
+          metadata,
+          title
+        );
+        
+        notifications.push(notification);
+      }
+      
+      return notifications;
+    } catch (error) {
+      console.error(`Error sending bill notifications for bill ${billId}:`, error);
+      throw error;
+    }
   }
 };
 
 module.exports = {
   createBill,                  // expose the core function
+  sendNotification,            // expose the notification helper
   ...billService               // spread in the rest of your helpers
 };
