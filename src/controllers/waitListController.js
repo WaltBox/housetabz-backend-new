@@ -1,29 +1,6 @@
-const { WaitList, Referrer, MemeQRCode } = require('../models');  // Added MemeQRCode import
-const sgMail = require('@sendgrid/mail');
-const { createWelcomeEmail } = require('../utils/emailTemplates');
-
-// Set the SendGrid API key
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-// Function to send a welcome email
-const sendWelcomeEmail = async (recipientName, recipientEmail) => {
-  const emailHtml = createWelcomeEmail(recipientName);
-
-  const msg = {
-    to: recipientEmail,
-    from: 'notifications@housetabz.com',
-    subject: 'Welcome to HouseTabz!',
-    html: emailHtml,
-  };
-
-  try {
-    await sgMail.send(msg);
-    console.log(`Welcome email sent to ${recipientEmail}`);
-  } catch (error) {
-    console.error(`Failed to send email to ${recipientEmail}:`, error.message);
-    throw new Error('Failed to send welcome email.');
-  }
-};
+// src/controllers/waitListController.js
+const { WaitList, Referrer, MemeQRCode } = require('../models');
+const { sendWelcomeEmail } = require('../services/emailService');
 
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {

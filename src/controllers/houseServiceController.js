@@ -1,4 +1,4 @@
-const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest } = require('../models');
+const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest, Task } = require('../models');
 
 // Create a new HouseService
 exports.createHouseService = async (req, res) => {
@@ -90,6 +90,7 @@ exports.getAllHouseServices = async (req, res) => {
 };
 
 // Get a specific HouseService by ID
+// Get a specific HouseService by ID with tasks
 exports.getHouseServiceById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -99,14 +100,23 @@ exports.getHouseServiceById = async (req, res) => {
         {
           model: User,
           as: 'designatedUser',
-          attributes: ['id', 'username', 'email']
+          attributes: ['id', 'username']
         },
         {
           model: ServiceRequestBundle,
           as: 'serviceRequestBundle',
           include: [
             { model: TakeOverRequest, as: 'takeOverRequest' },
-            { model: StagedRequest, as: 'stagedRequest' }
+            { model: StagedRequest, as: 'stagedRequest' },
+            { 
+              model: Task, 
+              as: 'tasks',
+              include: [{
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              }]
+            }
           ]
         }
       ]

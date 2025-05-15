@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // Use your webhook.site testing URL
-const TEST_WEBHOOK_URL = 'https://webhook.site/a2ff98f0-4436-4bec-978e-4d99c2eb4b53';
+const TEST_WEBHOOK_URL = 'https://webhook.site/a466ffeb-dbee-4fe7-b027-9b27343339f9';
 
 let models = null;
 

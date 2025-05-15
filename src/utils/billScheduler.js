@@ -9,7 +9,7 @@ function startBillSchedulers() {
   console.log('Starting bill schedulers');
 
   // Run fixed recurring bill generation every day at 2 AM
-  cron.schedule('0 2 * * *', async () => {
+  cron.schedule('0 12 * * *', async () => {
     console.log('Running scheduled fixed recurring bill generation');
     try {
       const result = await billService.generateFixedRecurringBills();
@@ -20,7 +20,7 @@ function startBillSchedulers() {
   });
 
   // Run variable service reminders every day at 3 AM
-  cron.schedule('0 3 * * *', async () => {
+  cron.schedule('5 12 * * *', async () => {
     console.log('Running scheduled variable service reminders');
     try {
       const result = await billService.generateVariableServiceReminders();
@@ -31,7 +31,7 @@ function startBillSchedulers() {
   });
   
   // Run bill submission request generation every day at 4 AM
-  cron.schedule('0 4 * * *', async () => {
+  cron.schedule('10 12 * * *', async () => {
     console.log('Running scheduled variable bill submission request generation');
     try {
       const result = await billService.generateVariableBillSubmissionRequests();
@@ -42,7 +42,7 @@ function startBillSchedulers() {
   });
   
   // Run bill submission reminders every day at 5 AM
-  cron.schedule('0 5 * * *', async () => {
+  cron.schedule('15 12 * * *', async () => {
     console.log('Running scheduled bill submission reminders');
     try {
       const result = await billService.generateBillSubmissionReminders();

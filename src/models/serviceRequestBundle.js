@@ -62,8 +62,13 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       houseId: bundle.houseId,
       serviceRequestBundleId: bundle.id,
       status: 'active',
-      type: serviceType
+      type: serviceType,
+      // Set feeCategory based on request type
+      feeCategory: bundle.takeOverRequestId || bundle.virtualCardRequestId 
+        ? 'card' 
+        : 'marketplace'
     };
+    
     
     // Add fields based on associated request type
     if (bundle.takeOverRequestId) {

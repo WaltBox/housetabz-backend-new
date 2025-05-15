@@ -2,7 +2,20 @@ const express = require('express');
 const taskController = require('../controllers/taskController');
 const router = express.Router();
 const { authenticateUser } = require('../middleware/auth/userAuth');
+const { authenticateSystem } = require('../middleware/auth/systemAuth');
 const { catchAsync } = require('../middleware/errorHandler');
+
+// Middleware to allow either user or system authentication
+const authenticateUserOrSystem = (req, res, next) => {
+  // Check for system API key first
+  const key = req.headers['x-housetabz-service-key'];
+  if (key === process.env.SYSTEM_API_KEY) {
+    return next(); // System key is valid, proceed
+  }
+  
+  // If no valid system key, try user authentication
+  authenticateUser(req, res, next);
+};
 
 /**
  * @swagger
@@ -14,8 +27,7 @@ const { catchAsync } = require('../middleware/errorHandler');
  *       200:
  *         description: A list of tasks
  */
-router.get('/', authenticateUser, catchAsync(taskController.getTasks));
-
+router.get('/', authenticateUserOrSystem, catchAsync(taskController.getTasks));
 
 /**
  * @swagger
@@ -33,8 +45,7 @@ router.get('/', authenticateUser, catchAsync(taskController.getTasks));
  *       200:
  *         description: A list of tasks for the user
  */
-router.get('/user/:userId', authenticateUser, catchAsync(taskController.getTasksByUser));
-
+router.get('/user/:userId', authenticateUserOrSystem, catchAsync(taskController.getTasksByUser));
 
 /**
  * @swagger
@@ -49,7 +60,7 @@ router.get('/user/:userId', authenticateUser, catchAsync(taskController.getTasks
  *         schema:
  *           type: integer
  */
-router.get('/:taskId', authenticateUser, catchAsync(taskController.getTaskStatus));
+router.get('/:taskId', authenticateUserOrSystem, catchAsync(taskController.getTaskStatus));
 
 /**
  * @swagger
@@ -77,6 +88,6 @@ router.get('/:taskId', authenticateUser, catchAsync(taskController.getTaskStatus
  *       200:
  *         description: Task updated successfully
  */
-router.patch('/:taskId', authenticateUser, catchAsync(taskController.updateTask));
+router.patch('/:taskId', authenticateUserOrSystem, catchAsync(taskController.updateTask));
 
 module.exports = router;

@@ -1,7 +1,6 @@
+// controllers/contactController.js
 const { Contact } = require('../models');
-const sgMail = require('@sendgrid/mail');
-
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const { sendContactConfirmationEmail } = require('../services/emailService');
 
 // Add a new contact form entry
 exports.addContact = async (req, res) => {
@@ -14,23 +13,8 @@ exports.addContact = async (req, res) => {
 
     const contactEntry = await Contact.create({ name, email, message });
 
-    // Send confirmation email to the user
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #dff6f0; color: #333;">
-        <h1 style="color: #34d399;">Thank You for Reaching Out!</h1>
-        <p>Hi ${name},</p>
-        <p>Thank you for contacting HouseTabz. Our team will review your message and get back to you as soon as possible.</p>
-        <p style="margin-top: 20px;">Best regards,</p>
-        <p>HouseTabz Team</p>
-      </div>
-    `;
-
-    await sgMail.send({
-      to: email,
-      from: 'support@housetabz.com',
-      subject: 'We Received Your Message!',
-      html: emailHtml,
-    });
+    // Send confirmation email to the user using AWS SES
+    await sendContactConfirmationEmail(name, email);
 
     res.status(201).json({ message: 'Message sent successfully!', entry: contactEntry });
   } catch (error) {

@@ -5,7 +5,7 @@ const hsiService = require('../services/hsiService');
 async function run() {
   try {
     // Retrieve houseId and newScore from command-line arguments (or use defaults)
-    const houseId = process.argv[2] || 1; // Default houseId if not provided
+    const houseId = process.argv[2] || 5; // Default houseId if not provided
     const newScore = process.argv[3] ? parseInt(process.argv[3], 10) : 30; // Default score of 30
 
     // Calculate derived values from the new score

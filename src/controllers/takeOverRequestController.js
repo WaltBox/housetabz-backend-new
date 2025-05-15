@@ -125,6 +125,7 @@ const takeOverRequestController = {
         createDay: isFixedService ? createDay : null,
         reminderDay: !isFixedService ? reminderDay : null,
         designatedUserId: userId,
+        feeCategory: 'card',
         metadata: {
           serviceType
         }

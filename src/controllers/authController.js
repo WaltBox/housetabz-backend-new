@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize'); // Import Sequelize operators
 const { generateAccessToken, verifyRefreshToken } = require('../middleware/auth/tokenUtils');
-
+const { sendPasswordResetCode } = require('../services/emailService');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 
@@ -259,7 +259,175 @@ res.status(201).json({
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
+  },
+
+  // Request password reset (generates and sends code)
+  async requestPasswordReset(req, res) {
+    try {
+      const { email } = req.body;
+      
+      if (!email || !validateEmail(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid email is required'
+        });
+      }
+      
+      // Find user
+      const user = await User.findOne({ where: { email } });
+      
+      // Always return success even if user not found (for security)
+      if (!user) {
+        console.log('Password reset requested for non-existent email:', email);
+        return res.json({
+          success: true,
+          message: 'If an account with that email exists, a verification code has been sent'
+        });
+      }
+      
+      // Generate 6-digit code
+      const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+      console.log('Generated reset code:', resetCode); // For development only
+      
+      // Store hashed code in database (expires in 10 minutes)
+      const hashedCode = await bcrypt.hash(resetCode, 10);
+      await user.update({
+        resetCode: hashedCode, // Changed from resetCodeHash to resetCode
+        resetCodeExpires: new Date(Date.now() + 600000) // 10 minutes
+      });
+      
+      const emailSent = await sendPasswordResetCode(user.email, resetCode);
+    
+      if (!emailSent) {
+        console.error('Failed to send password reset email to:', user.email);
+        // Still return success to user for security reasons
+      }
+      
+      res.json({
+        success: true,
+        message: 'If an account with that email exists, a verification code has been sent'
+      });
+    } catch (error) {
+      console.error('Password reset request error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'An error occurred processing your password reset request'
+      });
+    }
+  },
+
+  async verifyResetCode(req, res) {
+    try {
+      const { email, code } = req.body;
+      
+      if (!email || !code) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email and verification code are required'
+        });
+      }
+      
+      // Find user
+      const user = await User.findOne({ 
+        where: { 
+          email,
+          resetCodeExpires: { [Op.gt]: new Date() }
+        }
+      });
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid or expired verification code'
+        });
+      }
+      
+      // Verify code
+      const isValidCode = await bcrypt.compare(code, user.resetCode);
+      if (!isValidCode) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid verification code'
+        });
+      }
+      
+      // Code is valid
+      res.json({
+        success: true,
+        message: 'Verification code is valid'
+      });
+    } catch (error) {
+      console.error('Code verification error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'An error occurred verifying the code'
+      });
+    }
+  },
+  
+  // Verify code and reset password
+  async resetPasswordWithCode(req, res) {
+    try {
+      const { email, code, newPassword } = req.body;
+      
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email, verification code, and new password are required'
+        });
+      }
+      
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password must be at least 6 characters long'
+        });
+      }
+      
+      // Find user
+      const user = await User.findOne({ 
+        where: { 
+          email,
+          resetCodeExpires: { [Op.gt]: new Date() }
+        }
+      });
+      
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid or expired verification code'
+        });
+      }
+      
+      // Verify code - changed from resetCodeHash to resetCode
+      const isValidCode = await bcrypt.compare(code, user.resetCode);
+      if (!isValidCode) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid verification code'
+        });
+      }
+      
+      // Update password and clear reset code - changed from resetCodeHash to resetCode
+      await user.update({
+        password: newPassword, // Will be hashed by model hook
+        resetCode: null,
+        resetCodeExpires: null
+      });
+      
+      res.json({
+        success: true,
+        message: 'Password has been successfully reset'
+      });
+    } catch (error) {
+      console.error('Password reset error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'An error occurred resetting your password'
+      });
+    }
   }
+  
 };
 
 module.exports = authController;

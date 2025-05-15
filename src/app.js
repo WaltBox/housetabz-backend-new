@@ -15,8 +15,8 @@ const config = fullConfig[environment]; // 👈 This gets development_local, etc
 const { apiLimiter: limiter, blockPaths } = require('./middleware/security/rateLimiter');
 
 const { sequelize } = require('./models'); // Import Sequelize instance
-
-
+const { startUrgentMessageSchedulers } = require('./utils/urgentMessageScheduler');
+const { startBillSchedulers } = require('./utils/billScheduler');
 // const { authenticateUser } = require('./middleware/auth/userAuth');
 // const { authenticatePartner } = require('./middleware/auth/partnerAuth');
 // const { authenticateWebhook } = require('./middleware/auth/webhookAuth');
@@ -45,6 +45,8 @@ const memeQRCodeRoutes = require('./routes/memeQRCodeRoutes'); // Import the new
 const userFinanceRoutes = require('./routes/userFinanceRoutes');
 const houseFinanceRoutes = require('./routes/houseFinanceRoutes');
 const billSubmissionRoutes = require('./routes/billSubmissionRoutes');
+const urgentMessageRoutes = require('./routes/urgentMessageRoutes');  
+const reminderRoutes = require('./routes/reminderRoutes')
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const botFilter = require('./middleware/security/botFilter');
 
@@ -141,7 +143,9 @@ app.use('/api/meme-qr-codes', memeQRCodeRoutes);
 app.use('/api', userFinanceRoutes);
 app.use('/api', houseFinanceRoutes);
 app.use('/api', billSubmissionRoutes);
-app.use('/api', feedbackRoutes )
+app.use('/api', feedbackRoutes );
+app.use('/api', reminderRoutes);
+app.use('/api/urgent-messages', urgentMessageRoutes);
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {
@@ -226,10 +230,12 @@ app.use((err, req, res, next) => {
     await sequelize.sync({ alter: true });
     console.log('Database synced');
 
-    const { startBillSchedulers } = require('./utils/billScheduler');
+    
     startBillSchedulers();
     console.log('Bill schedulers started');
 
+    startUrgentMessageSchedulers(); 
+    console.log('Urgent message schedulers started');
     // Use the PORT environment variable set by Elastic Beanstalk, or fall back to config.port or 8080
     const port = process.env.PORT || config.port || 8080;
     app.listen(port, () => {

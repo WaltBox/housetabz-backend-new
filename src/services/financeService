@@ -76,7 +76,7 @@ class FinanceService {
   async processUserPayment(userId, amount, description, transaction = null, metadata = {}) {
     const t = transaction || await sequelize.transaction();
     try {
-      // Get user finance record
+      // Find user's finance record
       const userFinance = await UserFinance.findOne({ 
         where: { userId },
         transaction: t
@@ -86,20 +86,18 @@ class FinanceService {
         throw new Error(`User finance record not found for user ${userId}`);
       }
       
-      // Record the balance before the change
       const balanceBefore = parseFloat(userFinance.balance);
       
-      // Update the balance (subtract payment amount)
+      // Subtract payment
       userFinance.balance = (balanceBefore - parseFloat(amount)).toFixed(2);
       userFinance.lastTransactionDate = new Date();
       await userFinance.save({ transaction: t });
-      
-      // Extract billId, chargeId, and paymentId from metadata
+  
+      // Create a user transaction record
       const billId = metadata.billId || null;
       const chargeId = metadata.chargeId || null;
       const paymentId = metadata.paymentId || null;
       
-      // Create a transaction record with proper relationships
       const txn = await Transaction.create({
         userId,
         type: 'PAYMENT',
@@ -113,15 +111,28 @@ class FinanceService {
         paymentId,
         metadata
       }, { transaction: t });
+  
+      // 🔥 NEW: Update HouseFinance.balance and ledger too
+      const user = await User.findByPk(userId, { transaction: t });
+      if (!user || !user.houseId) {
+        throw new Error(`User or user's house not found for user ${userId}`);
+      }
+  
+      await this.updateHouseBalance(
+        user.houseId,
+        amount,
+        'PAYMENT',    // this signals that balance goes DOWN, ledger goes UP
+        description,
+        t,
+        metadata
+      );
       
-      // If this wasn't called with an existing transaction, commit it
       if (!transaction) {
         await t.commit();
       }
       
       return txn;
     } catch (error) {
-      // Only rollback if we started the transaction
       if (!transaction) {
         await t.rollback();
       }
@@ -130,18 +141,17 @@ class FinanceService {
     }
   }
   
+  
   /**
    * Update a house's balance
    */
   async updateHouseBalance(houseId, amount, type, description, transaction = null, metadata = {}) {
+    const isNewTransaction = !transaction;
     const t = transaction || await sequelize.transaction();
+  
     try {
-      // Get or create house finance record
-      let houseFinance = await HouseFinance.findOne({ 
-        where: { houseId },
-        transaction: t
-      });
-      
+      // Find or create the HouseFinance record
+      let houseFinance = await HouseFinance.findOne({ where: { houseId }, transaction: t });
       if (!houseFinance) {
         houseFinance = await HouseFinance.create({
           houseId,
@@ -149,34 +159,29 @@ class FinanceService {
           ledger: 0
         }, { transaction: t });
       }
-      
-      // Record the balance before the change
+  
+      // Record the previous balance
       const balanceBefore = parseFloat(houseFinance.balance);
-      
-      // Update the balance based on the transaction type
+      const ledgerBefore = parseFloat(houseFinance.ledger);
       const parsedAmount = parseFloat(amount);
+  
+      // Update balance based on transaction type
       if (type === 'CHARGE') {
-        // Adding a charge increases the house balance
         houseFinance.balance = (balanceBefore + parsedAmount).toFixed(2);
       } else if (type === 'PAYMENT') {
-        // A payment decreases the house balance
         houseFinance.balance = (balanceBefore - parsedAmount).toFixed(2);
       } else {
-        // For other types, use the sign of the amount to determine add/subtract
+        // Default: add amount (positive or negative)
         houseFinance.balance = (balanceBefore + parsedAmount).toFixed(2);
       }
-      
-      // Update the ledger (always adds to the running total)
-      houseFinance.ledger = (parseFloat(houseFinance.ledger) + Math.abs(parsedAmount)).toFixed(2);
+  
+      // Always add the ABS amount to ledger (ledger only ever grows)
+      houseFinance.ledger = (ledgerBefore + Math.abs(parsedAmount)).toFixed(2);
       houseFinance.lastTransactionDate = new Date();
-      
+  
       await houseFinance.save({ transaction: t });
-      
-      // Extract billId from metadata
-      const billId = metadata.billId || null;
-      const paymentId = metadata.paymentId || null;
-      
-      // Create a transaction record with proper relationships
+  
+      // Create a transaction record
       const txn = await Transaction.create({
         houseId,
         type,
@@ -185,77 +190,21 @@ class FinanceService {
         balanceBefore: balanceBefore.toFixed(2),
         balanceAfter: houseFinance.balance,
         status: 'COMPLETED',
-        billId,
-        paymentId,
+        billId: metadata.billId || null,
+        paymentId: metadata.paymentId || null,
         metadata
       }, { transaction: t });
-      
-      // If this wasn't called with an existing transaction, commit it
-      if (!transaction) {
+  
+      if (isNewTransaction) {
         await t.commit();
       }
-      
+  
       return txn;
     } catch (error) {
-      // Only rollback if we started the transaction
-      if (!transaction) {
+      if (isNewTransaction) {
         await t.rollback();
       }
       logger.error('Error updating house balance:', error);
-      throw error;
-    }
-  }
-  
-  /**
-   * Transfer balance from one user to another
-   * @param {number} fromUserId - User ID to transfer from
-   * @param {number} toUserId - User ID to transfer to
-   * @param {number} amount - Amount to transfer
-   * @param {string} description - Description of the transfer
-   * @param {Object} metadata - Additional data to store with the transaction
-   * @returns {Promise<Object>} - Object containing both transactions
-   */
-  async transferBetweenUsers(fromUserId, toUserId, amount, description, metadata = {}) {
-    const t = await sequelize.transaction();
-    try {
-      // Process the outgoing transaction (subtract from sender)
-      const outgoingTxn = await this.processUserPayment(
-        fromUserId, 
-        amount, 
-        `Transfer to user #${toUserId}: ${description}`, 
-        t,
-        { ...metadata, transferType: 'outgoing', toUserId }
-      );
-      
-      // Process the incoming transaction (add to receiver)
-      const incomingTxn = await this.addUserCharge(
-        toUserId, 
-        amount, 
-        `Transfer from user #${fromUserId}: ${description}`, 
-        t,
-        { ...metadata, transferType: 'incoming', fromUserId }
-      );
-      
-      // Link the two transactions
-      await outgoingTxn.update({ 
-        relatedTransactionId: incomingTxn.id,
-        type: 'TRANSFER' 
-      }, { transaction: t });
-      
-      await incomingTxn.update({ 
-        relatedTransactionId: outgoingTxn.id,
-        type: 'TRANSFER' 
-      }, { transaction: t });
-      
-      await t.commit();
-      
-      return {
-        outgoing: outgoingTxn,
-        incoming: incomingTxn
-      };
-    } catch (error) {
-      await t.rollback();
-      logger.error('Error transferring between users:', error);
       throw error;
     }
   }

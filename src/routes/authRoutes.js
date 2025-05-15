@@ -13,6 +13,12 @@ router.post('/login', authController.login);
 router.post('/register', authController.register);
 router.post('/refresh-token', authController.refreshToken); // Add this if you have a refresh endpoint
 
+// In your auth routes
+router.post('/request-reset-code', authController.requestPasswordReset);
+router.post('/verify-reset-code', authController.verifyResetCode);
+router.post('/reset-password-with-code', authController.resetPasswordWithCode);
+
+
 // Protected routes
 router.get('/me', authenticateUser, authController.getCurrentUser);
 
