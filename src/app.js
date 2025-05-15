@@ -46,6 +46,7 @@ const userFinanceRoutes = require('./routes/userFinanceRoutes');
 const houseFinanceRoutes = require('./routes/houseFinanceRoutes');
 const billSubmissionRoutes = require('./routes/billSubmissionRoutes');
 const urgentMessageRoutes = require('./routes/urgentMessageRoutes');  
+const HouseServiceLedgerRoutes = require('./routes/houseServiceLedgerRoutes')
 const reminderRoutes = require('./routes/reminderRoutes')
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const botFilter = require('./middleware/security/botFilter');
@@ -145,6 +146,7 @@ app.use('/api', houseFinanceRoutes);
 app.use('/api', billSubmissionRoutes);
 app.use('/api', feedbackRoutes );
 app.use('/api', reminderRoutes);
+app.use('/api', HouseServiceLedgerRoutes)
 app.use('/api/urgent-messages', urgentMessageRoutes);
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {

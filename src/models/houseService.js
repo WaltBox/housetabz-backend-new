@@ -133,7 +133,22 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'houseService_id',
       as: 'bills'
     });
+    HouseService.hasMany(models.HouseServiceLedger, {
+      foreignKey: 'houseServiceId',
+      as: 'ledgers'
+    });
   };
+
+  HouseService.prototype.getActiveLedger = async function () {
+    return await sequelize.models.HouseServiceLedger.findOne({
+      where: {
+        houseServiceId: this.id,
+        status: 'active'
+      },
+      order: [['createdAt', 'DESC']]
+    });
+  };
+  
 
   return HouseService;
 };

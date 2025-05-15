@@ -107,6 +107,28 @@ async function createBill(params) {
         generatedAt: new Date(),
       }
     }, { transaction });
+
+    await sequelize.models.HouseServiceLedger.update(
+      { status: 'closed', cycleEnd: new Date() },
+      {
+        where: {
+          houseServiceId: service.id,
+          status: 'active'
+        },
+        transaction
+      }
+    );
+    
+    // Create a new ledger for this bill cycle
+    await sequelize.models.HouseServiceLedger.create({
+      houseServiceId: service.id,
+      billId: bill.id,
+      fundingRequired: parsedBaseAmount,
+      funded: 0.00,
+      amountFronted: 0.00,
+      status: 'active',
+      cycleStart: new Date()
+    }, { transaction });
     
     // Calculate each user's portion
     const baseChargeAmount = parseFloat((parsedBaseAmount / numberOfUsers).toFixed(2));

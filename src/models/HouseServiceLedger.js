@@ -14,18 +14,22 @@ module.exports = (sequelize, DataTypes) => {
       },
       fundingRequired: {
         type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
         defaultValue: 0.00
       },
       funded: {
         type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
         defaultValue: 0.00
       },
       amountFronted: {
         type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
         defaultValue: 0.00
       },
       cycleStart: {
         type: DataTypes.DATE,
+        allowNull: false,
         defaultValue: DataTypes.NOW
       },
       cycleEnd: {
@@ -45,7 +49,6 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'houseServiceId',
         as: 'houseService'
       });
-  
       HouseServiceLedger.belongsTo(models.Bill, {
         foreignKey: 'billId',
         as: 'bill'

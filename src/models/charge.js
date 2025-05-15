@@ -99,6 +99,18 @@ module.exports = (sequelize, DataTypes) => {
       this.status = 'paid';
       await this.save();
 
+      const bill = await this.getBill();
+if (bill) {
+  const houseService = await bill.getHouseService();
+  if (houseService) {
+    const ledger = await houseService.getActiveLedger();
+    if (ledger) {
+      await ledger.increment('funded', { by: Number(this.amount) });
+    }
+  }
+}
+
+
       // Update bill status
       await this.getBill().then(bill => bill.updateStatus());
 
