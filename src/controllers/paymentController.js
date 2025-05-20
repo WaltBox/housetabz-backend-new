@@ -9,7 +9,6 @@ const financeService = require('../services/financeService');
 const logger = createLogger('payment-controller');
 
 // Calculate payment points based on charge due date
-
 const calculatePaymentPoints = (charge) => {
   const now = new Date();
   const dueDate = new Date(charge.dueDate);
@@ -270,6 +269,53 @@ const paymentController = {
           const bill = await Bill.findByPk(billId, { transaction });
           if (bill) {
             await bill.updateStatus(transaction); // Pass the transaction here
+          }
+        }
+
+        // Update HouseServiceLedger for each charge - FIXED VERSION
+        for (const charge of charges) {
+          try {
+            // Get the bill for this charge
+            const bill = await Bill.findByPk(charge.billId, { transaction });
+            if (!bill) {
+              console.log(`No bill found for charge ${charge.id}, skipping ledger update`);
+              continue;
+            }
+
+            // FIXED: Directly query for the HouseService using the bill's houseService_id
+            const houseService = await sequelize.models.HouseService.findByPk(bill.houseService_id, { transaction });
+            if (!houseService) {
+              console.log(`No houseService found for bill ${bill.id}, skipping ledger update`);
+              continue;
+            }
+
+            // FIXED: Directly query for the active ledger
+            const ledger = await sequelize.models.HouseServiceLedger.findOne({
+              where: {
+                houseServiceId: houseService.id,
+                status: 'active'
+              },
+              order: [['createdAt', 'DESC']],
+              transaction
+            });
+            
+            if (!ledger) {
+              console.log(`No active ledger found for houseService ${houseService.id}, skipping ledger update`);
+              continue;
+            }
+
+            // Fund ledger with the charge amount
+            await ledger.increment('funded', {
+              by: Number(charge.amount),
+              transaction
+            });
+            
+            // Track user contribution in metadata, but skip updating funded again
+            await ledger.addContribution(charge.userId, charge.amount, charge.id, transaction, true);
+            console.log(`💰 CHARGE ${charge.id}: contribution recorded in ledger ${ledger.id}`);
+          } catch (error) {
+            console.error(`Error updating ledger for charge ${charge.id}:`, error);
+            // Continue processing other charges even if one fails
           }
         }
   

@@ -1,4 +1,5 @@
-// Updated Charge model with simplified status
+// models/Charge.js
+
 module.exports = (sequelize, DataTypes) => {
   const Charge = sequelize.define('Charge', {
     amount: {
@@ -14,8 +15,8 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
       defaultValue: 'unpaid',
-      validate: { 
-        isIn: [['unpaid', 'processing', 'paid', 'failed']] 
+      validate: {
+        isIn: [['unpaid', 'processing', 'paid', 'failed']]
       }
     },
     stripePaymentIntentId: {
@@ -44,25 +45,21 @@ module.exports = (sequelize, DataTypes) => {
     },
     baseAmount: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
-      comment: 'User portion of the bill before fees'
+      allowNull: false
     },
     serviceFee: {
       type: DataTypes.DECIMAL(6, 2),
       allowNull: false,
-      defaultValue: 0.00,
-      comment: 'HSI-adjusted service fee'
+      defaultValue: 0.00
     },
     hsiAtTimeOfCharge: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      comment: 'House HSI at time of charge creation'
+      allowNull: true
     },
     pointsPotential: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 2,
-      comment: 'Potential points for on-time payment'
+      defaultValue: 2
     }
   }, {
     indexes: [
@@ -87,44 +84,69 @@ module.exports = (sequelize, DataTypes) => {
     });
   };
 
-  // Updated instance method with 'unpaid' status
-  Charge.prototype.processPayment = async function(stripeService) {
-    try {
-      this.status = 'processing';
-      await this.save();
+  Charge.prototype.processPayment = async function (stripeService) {
+    const transaction = await sequelize.transaction();
+    const logPrefix = `CHARGE ${this.id}`;
 
+    try {
+      console.log(`⚡ ${logPrefix}: starting processPayment`);
+
+      // Set status to processing
+      this.status = 'processing';
+      await this.save({ transaction });
+
+      // Call Stripe
       const paymentIntent = await stripeService.processPayment(this);
-      
+
+      // Update charge to paid
       this.stripePaymentIntentId = paymentIntent.id;
       this.status = 'paid';
-      await this.save();
+      this.metadata = {
+        ...this.metadata,
+        paidDate: new Date().toISOString()
+      };
+      await this.save({ transaction });
+      console.log(`✅ ${logPrefix}: marked as paid`);
 
-      const bill = await this.getBill();
-if (bill) {
-  const houseService = await bill.getHouseService();
-  if (houseService) {
-    const ledger = await houseService.getActiveLedger();
-    if (ledger) {
-      await ledger.increment('funded', { by: Number(this.amount) });
-    }
-  }
-}
+      // Load bill and house service
+      const bill = await this.getBill({ transaction });
+      if (!bill) throw new Error(`No bill found for charge ${this.id}`);
 
+      // Fix: Pass transaction as an object parameter
+      const houseService = await bill.getHouseService({ transaction });
+      if (!houseService) throw new Error(`No houseService found for bill ${bill.id}`);
+
+      // Fix: Pass transaction as an object parameter
+      const ledger = await houseService.getActiveLedger({ transaction });
+      if (!ledger) throw new Error(`No active ledger found for houseService ${houseService.id}`);
+
+      // Fund ledger
+      await ledger.increment('funded', {
+        by: Number(this.amount),
+        transaction
+      });
+
+      // Track user contribution in metadata
+      await ledger.addContribution(this.userId, this.amount, this.id, transaction);
+      console.log(`💰 ${logPrefix}: contribution recorded in ledger ${ledger.id}`);
 
       // Update bill status
-      await this.getBill().then(bill => bill.updateStatus());
+      await bill.updateStatus(transaction);
+      console.log(`📦 ${logPrefix}: bill status updated`);
 
+      await transaction.commit();
+      console.log(`🚀 ${logPrefix}: process complete`);
       return true;
     } catch (error) {
-      const errorMsg = error.message && error.message.length > 1000 
-        ? error.message.substring(0, 1000) 
-        : error.message;
-      
+      await transaction.rollback();
+
+      const errorMsg = (error.message || 'Unknown error').slice(0, 1000);
       this.status = 'failed';
       this.errorMessage = errorMsg;
       this.retryCount += 1;
       await this.save();
-      
+
+      console.error(`❌ ${logPrefix}: failed with error ->`, error);
       throw error;
     }
   };

@@ -6,6 +6,29 @@ const {authenticateSystem} = require('../middleware/auth/systemAuth');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { catchAsync } = require('../middleware/errorHandler');
 
+// Middleware to allow either user or system authentication
+const authenticateEither = (req, res, next) => {
+  // Check for system auth first
+  const systemKey = req.headers['x-housetabz-service-key'];
+  if (systemKey === process.env.SYSTEM_API_KEY) {
+    // System key is valid, proceed with system rights
+    req.isSystemRequest = true;
+    return next();
+  }
+
+  // If system auth fails, try user auth
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'Authentication required',
+      message: 'Valid authentication token or system key required' 
+    });
+  }
+  
+  // Extract and verify user token - reuse existing authenticateUser middleware
+  authenticateUser(req, res, next);
+};
+
 /**
  * @swagger
  * components:
@@ -153,9 +176,12 @@ router.post('/:houseId/bills', authenticateSystem, catchAsync(billController.cre
  *       404:
  *         description: House not found
  */
-router.get('/:houseId/bills', authenticateUser, catchAsync(billController.getBillsForHouse));
+// Update to use authenticateEither middleware instead of just authenticateUser
+router.get('/:houseId/bills', authenticateEither, catchAsync(billController.getBillsForHouse));
 
-router.get('/:houseId/paid-bills', authenticateUser, catchAsync(billController.getPaidBillsForHouse));
+// Update other routes that might need both types of authentication
+router.get('/:houseId/paid-bills', authenticateEither, catchAsync(billController.getPaidBillsForHouse));
+
 /**
  * @swagger
  * /houses/{houseId}/bills/{billId}:
@@ -185,7 +211,7 @@ router.get('/:houseId/paid-bills', authenticateUser, catchAsync(billController.g
  *       404:
  *         description: House or bill not found
  */
-router.get('/:houseId/bills/:billId', authenticateUser, catchAsync(billController.getBillForHouse));
+router.get('/:houseId/bills/:billId', authenticateEither, catchAsync(billController.getBillForHouse));
 
 
 /**

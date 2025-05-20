@@ -91,6 +91,7 @@ exports.getBillsForHouse = async (req, res, next) => {
       whereCondition.billType = billType;
     }
 
+    // CORRECTED: Use houseServiceModel alias instead of houseService
     const bills = await Bill.findAll({
       where: whereCondition,
       attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
@@ -107,7 +108,7 @@ exports.getBillsForHouse = async (req, res, next) => {
         },
         {
           model: HouseService,
-          as: 'houseService',
+          as: 'houseServiceModel', // Changed from 'houseService' to 'houseServiceModel'
           attributes: ['id', 'name', 'type']
         }
       ],
@@ -126,15 +127,70 @@ exports.getBillsForHouse = async (req, res, next) => {
   }
 };
 
-/**
- * Get only paid bills for the specified house.
- */
+// Update getBillForHouse as well for consistency
+exports.getBillForHouse = async (req, res, next) => {
+  try {
+    const { houseId, billId } = req.params;
+
+    if (req.user.houseId != houseId) {
+      return res.status(403).json({ error: 'Unauthorized access to house bill' });
+    }
+
+    const house = await House.findByPk(houseId);
+    if (!house) {
+      return res.status(404).json({ message: 'House not found' });
+    }
+
+    // CORRECTED: Use houseServiceModel alias instead of houseService
+    const bill = await Bill.findOne({
+      where: { id: billId, houseId },
+      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
+      include: [
+        {
+          model: Charge,
+          attributes: ['id', 'amount', 'status', 'name', 'userId'],
+          include: [
+            {
+              model: User,
+              attributes: ['id', 'username']
+            },
+          ],
+        },
+        {
+          model: HouseService,
+          as: 'houseServiceModel', // Changed from 'houseService' to 'houseServiceModel'
+          attributes: ['id', 'name', 'type']
+        },
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'username']
+        }
+      ],
+    });
+
+    if (!bill) {
+      return res.status(404).json({ message: 'Bill not found for this house' });
+    }
+
+    res.status(200).json(bill);
+  } catch (error) {
+    logger.error('Error fetching bill for house:', error);
+    next(error);
+  }
+};
+
+// Update to the getPaidBillsForHouse function
 exports.getPaidBillsForHouse = async (req, res) => {
   try {
     const { houseId } = req.params;
 
-    if (req.user.houseId != houseId) {
-      return res.status(403).json({ error: 'Unauthorized access to house bills' });
+    // If this is a system request (confirmed by middleware), skip user authorization check
+    if (!req.isSystemRequest) {
+      // Only check user authorization if it's not a system request
+      if (req.user.houseId != houseId) {
+        return res.status(403).json({ error: 'Unauthorized access to house bills' });
+      }
     }
 
     const bills = await Bill.findAll({
@@ -152,15 +208,17 @@ exports.getPaidBillsForHouse = async (req, res) => {
   }
 };
 
-/**
- * Get a specific bill for a house.
- */
+// Update to the getBillForHouse function
 exports.getBillForHouse = async (req, res, next) => {
   try {
     const { houseId, billId } = req.params;
 
-    if (req.user.houseId != houseId) {
-      return res.status(403).json({ error: 'Unauthorized access to house bill' });
+    // If this is a system request (confirmed by middleware), skip user authorization check
+    if (!req.isSystemRequest) {
+      // Only check user authorization if it's not a system request
+      if (req.user.houseId != houseId) {
+        return res.status(403).json({ error: 'Unauthorized access to house bill' });
+      }
     }
 
     const house = await House.findByPk(houseId);
