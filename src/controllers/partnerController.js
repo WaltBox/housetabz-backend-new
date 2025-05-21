@@ -301,23 +301,48 @@ const partnerController = {
   },
 
   // Get a specific partner by ID
-  async getPartnerById(req, res) {
-    const { partnerId } = req.params;
+ // Find the getPartnerById function in src/controllers/partnerController.js
+async getPartnerById(req, res) {
+  const { partnerId } = req.params;
 
-    if (!partnerId) {
-      return res.status(400).json({ error: 'Partner ID is required' });
+  // Special case for the "current" partner
+  if (partnerId === 'current') {
+    // Check if there's an authenticated partner
+    if (!req.current_partner) {
+      return res.status(401).json({ error: 'Unauthorized. No partner authenticated.' });
     }
+    
     try {
-      const partner = await Partner.findOne({ where: { id: partnerId } });
+      // Use the ID from the authenticated partner
+      const partner = await Partner.findByPk(req.current_partner.id);
       if (!partner) {
         return res.status(404).json({ error: 'Partner not found' });
       }
+      
       res.status(200).json({ partner });
     } catch (error) {
-      console.error('Error fetching partner:', error);
+      console.error('Error fetching current partner:', error);
       res.status(500).json({ error: 'Failed to fetch partner' });
     }
-  },
+    return;
+  }
+
+  // Regular case - looking up by numeric ID
+  if (!partnerId) {
+    return res.status(400).json({ error: 'Partner ID is required' });
+  }
+  
+  try {
+    const partner = await Partner.findOne({ where: { id: partnerId } });
+    if (!partner) {
+      return res.status(404).json({ error: 'Partner not found' });
+    }
+    res.status(200).json({ partner });
+  } catch (error) {
+    console.error('Error fetching partner:', error);
+    res.status(500).json({ error: 'Failed to fetch partner' });
+  }
+},
 
   // Add this to your partnerController
 async getPartnerByApiKey(req, res) {
