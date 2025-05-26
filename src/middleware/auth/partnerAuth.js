@@ -1,14 +1,17 @@
+const crypto = require('crypto');
 const { Partner, PartnerKey } = require('../../models');
 
 const authenticatePartner = async (req, res, next) => {
   try {
     const apiKey = req.headers['x-api-key'];
-    const secretKey = req.headers['x-secret-key'];
+    const timestamp = req.headers['housetabz-timestamp'];
+    const signature = req.headers['housetabz-signature'];
     
-    if (!apiKey || !secretKey) {
+    // Check for all required headers
+    if (!apiKey || !timestamp || !signature) {
       return res.status(401).json({
         error: 'Authentication failed',
-        message: 'API key and Secret key are required'
+        message: 'API key, timestamp, and signature are required'
       });
     }
     
@@ -17,11 +20,49 @@ const authenticatePartner = async (req, res, next) => {
       where: { api_key: apiKey }
     });
     
-    // Verify secret (using secure comparison)
-    if (!partnerKey || partnerKey.secret_key !== secretKey) {
+    if (!partnerKey) {
       return res.status(401).json({
         error: 'Authentication failed',
-        message: 'Invalid API credentials'
+        message: 'Invalid API key'
+      });
+    }
+    
+    // Verify timestamp is recent (within 5 minutes to prevent replay attacks)
+    const requestTime = parseInt(timestamp, 10);
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (Math.abs(currentTime - requestTime) > 300) { // 5 minutes
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: 'Request timestamp expired'
+      });
+    }
+    
+    // Generate expected signature WITH prefix
+    const payload = JSON.stringify(req.body);
+    const signedPayload = `${timestamp}.${payload}`;
+    const expectedSignature = crypto
+      .createHmac('sha256', partnerKey.secret_key)
+      .update(signedPayload)
+      .digest('hex');
+      
+    const expectedSignatureWithPrefix = `sha256=${expectedSignature}`;
+
+    console.log('=== SIGNATURE DEBUG ===');
+    console.log('Received timestamp:', timestamp);
+    console.log('Received signature:', signature);
+    console.log('Request body JSON:', JSON.stringify(req.body));
+    console.log('Signed payload:', signedPayload);
+    console.log('Expected signature:', expectedSignatureWithPrefix);
+    console.log('=====================');
+    
+    // Use timing-safe comparison to prevent timing attacks
+    if (!crypto.timingSafeEqual(
+      Buffer.from(signature, 'utf8'),
+      Buffer.from(expectedSignatureWithPrefix, 'utf8')
+    )) {
+      return res.status(401).json({
+        error: 'Authentication failed',
+        message: 'Invalid signature'
       });
     }
     

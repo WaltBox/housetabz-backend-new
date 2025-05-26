@@ -1,7 +1,5 @@
 const axios = require('axios');
-
-// Use your webhook.site testing URL
-const TEST_WEBHOOK_URL = 'https://webhook.site/a466ffeb-dbee-4fe7-b027-9b27343339f9';
+const crypto = require('crypto');
 
 let models = null;
 
@@ -11,21 +9,52 @@ const webhookService = {
     if (!models) {
       models = require('../models');
     }
-    
+        
     console.log(`WebhookService.sendWebhook called with partnerId=${partnerId}, eventType=${eventType}`);
+    
+    // Find the partner and check their webhook configuration
+    const partner = await models.Partner.findByPk(partnerId);
+    
+    if (!partner || !partner.webhookUrl || !partner.webhookEnabled) {
+      console.log(`Partner ${partnerId} has no webhook configured or webhooks disabled`);
+      
+      // Still log the attempt for tracking
+      try {
+        await models.WebhookLog.create({
+          partner_id: partnerId,
+          event_type: eventType,
+          payload: this.buildPayload(eventType, data),
+          status: 'failed',
+          error: 'Webhook not configured or disabled'
+        });
+      } catch (logError) {
+        console.error('Error logging webhook failure:', logError);
+      }
+      
+      return { success: false, reason: 'webhook_not_configured' };
+    }
     
     // Build standard payload based on event type
     const payload = this.buildPayload(eventType, data);
     
     try {
-      // Send to webhook.site
-      console.log(`Sending ${eventType} webhook to test URL: ${TEST_WEBHOOK_URL}`);
+      // Generate signature headers using partner's webhook secret
+      const headers = this.signPayload(payload, partner.webhookSecret);
+      
+      // Add content type
+      headers['Content-Type'] = 'application/json';
+      
+      // Log the attempt
+      console.log(`Sending ${eventType} webhook to partner URL: ${partner.webhookUrl}`);
       console.log('Payload:', JSON.stringify(payload, null, 2));
       
-      const response = await axios.post(TEST_WEBHOOK_URL, payload);
+      // Send webhook to the partner's configured URL (NOT the test URL!)
+      const response = await axios.post(partner.webhookUrl, payload, { 
+        headers,
+        timeout: 10000 // 10 second timeout
+      });
       
-      // Try to log it
-      console.log('Creating webhook log entry');
+      // Log the successful webhook attempt
       try {
         const webhookLog = await models.WebhookLog.create({
           partner_id: partnerId,
@@ -51,7 +80,8 @@ const webhookService = {
           event_type: eventType,
           payload,
           status: 'failed',
-          error: error.message
+          error: error.message,
+          status_code: error.response?.status || null
         });
       } catch (logError) {
         console.error('Error logging webhook failure:', logError);
@@ -61,6 +91,24 @@ const webhookService = {
     }
   },
   
+  // 🔒 NEW: Sign the payload for security verification
+  signPayload(payload, secret) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payloadString = JSON.stringify(payload);
+    const signedPayload = `${timestamp}.${payloadString}`;
+    
+    const signature = crypto
+      .createHmac('sha256', secret)
+      .update(signedPayload)
+      .digest('hex');
+    
+    return {
+      'HouseTabz-Timestamp': timestamp.toString(),
+     'HouseTabz-Signature': `sha256=${signature}`
+
+    };
+  },
+  
   // Format payload based on event type
   buildPayload(eventType, data) {
     // Base payload structure
@@ -68,7 +116,7 @@ const webhookService = {
       event: eventType,
       timestamp: new Date().toISOString()
     };
-    
+        
     // Add fields specific to each event type
     switch (eventType) {
       case 'agreement.created':
@@ -82,7 +130,7 @@ const webhookService = {
           estimatedAmount: data.estimatedAmount || null,
           status: 'pending'
         };
-        
+              
       case 'request.authorized':
         return {
           ...payload,
@@ -93,7 +141,7 @@ const webhookService = {
           serviceName: data.serviceName,
           serviceType: data.serviceType
         };
-        
+              
       case 'request.rejected':
         return {
           ...payload,
@@ -102,17 +150,17 @@ const webhookService = {
           status: 'rejected',
           reason: data.reason || 'Request rejected by user'
         };
-      
+            
       case 'bill.paid':
         return {
           ...payload,
           houseTabzAgreementId: data.houseTabzAgreementId,
           externalAgreementId: data.externalAgreementId || null,
           externalBillId: data.externalBillId,
-          amountPaid: data.amount,
+          amountPaid: data.amountPaid, // 🔧 FIXED: was data.amount
           paymentDate: data.paymentDate || new Date().toISOString()
         };
-        
+              
       default:
         return { ...payload, ...data };
     }

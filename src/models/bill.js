@@ -1,4 +1,4 @@
-const axios = require('axios');
+const webhookService = require('../services/webhookService'); // 🔥 ADD THIS LINE
 
 module.exports = (sequelize, DataTypes) => {
   const Bill = sequelize.define('Bill', {
@@ -98,7 +98,7 @@ module.exports = (sequelize, DataTypes) => {
     return await this.getHouseServiceModel({ transaction });
   };
 
-  // Instance method to update status based on related charges
+  // 🔥 UPDATED: Instance method to update status based on related charges
   Bill.prototype.updateStatus = async function (transaction = null) {
     const charges = await sequelize.models.Charge.findAll({
       where: { billId: this.id },
@@ -112,6 +112,7 @@ module.exports = (sequelize, DataTypes) => {
     this.status = allPaid ? 'paid' : anyPaid ? 'partial_paid' : 'pending';
     await this.save({ transaction });
 
+    // 🔥 NEW CLEAN WEBHOOK LOGIC
     if (previousStatus !== 'paid' && this.status === 'paid') {
       const afterCommitAction = async () => {
         try {
@@ -123,46 +124,25 @@ module.exports = (sequelize, DataTypes) => {
             houseService.billingSource === 'partner' &&
             this.metadata?.externalBillId
           ) {
-            const TEST_WEBHOOK_URL = 'https://webhook.site/a466ffeb-dbee-4fe7-b027-9b27343339f9';
-
             console.log(`Sending bill.paid webhook for billId: ${this.id}, externalBillId: ${this.metadata.externalBillId}`);
 
-            const webhookPayload = {
-              event: 'bill.paid',
-              houseTabzAgreementId: houseService.houseTabzAgreementId,
-              externalAgreementId: houseService.externalAgreementId || null,
-              externalBillId: this.metadata.externalBillId,
-              amountPaid: parseFloat(this.baseAmount),
-              paymentDate: new Date().toISOString()
-            };
-
-            console.log('Webhook payload:', JSON.stringify(webhookPayload, null, 2));
-
-            try {
-              const response = await axios.post(TEST_WEBHOOK_URL, webhookPayload);
-              console.log(`Webhook sent successfully. Status: ${response.status}`);
-
-              if (sequelize.models.WebhookLog) {
-                await sequelize.models.WebhookLog.create({
-                  partner_id: houseService.partnerId,
-                  event_type: 'bill.paid',
-                  payload: webhookPayload,
-                  status: 'success',
-                  status_code: response.status,
-                  response: response.data || {}
-                });
+            // 🚀 USE THE NEW WEBHOOK SERVICE WITH SIGNATURES!
+            const result = await webhookService.sendWebhook(
+              houseService.partnerId,
+              'bill.paid',
+              {
+                houseTabzAgreementId: houseService.houseTabzAgreementId,
+                externalAgreementId: houseService.externalAgreementId || null,
+                externalBillId: this.metadata.externalBillId,
+                amountPaid: parseFloat(this.baseAmount),
+                paymentDate: new Date().toISOString()
               }
-            } catch (webhookError) {
-              console.error('Error sending webhook:', webhookError);
-              if (sequelize.models.WebhookLog) {
-                await sequelize.models.WebhookLog.create({
-                  partner_id: houseService.partnerId,
-                  event_type: 'bill.paid',
-                  payload: webhookPayload,
-                  status: 'failed',
-                  error: webhookError.message
-                });
-              }
+            );
+
+            if (result.success) {
+              console.log('Bill.paid webhook sent successfully');
+            } else {
+              console.error('Bill.paid webhook failed:', result.error || result.reason);
             }
           }
         } catch (error) {

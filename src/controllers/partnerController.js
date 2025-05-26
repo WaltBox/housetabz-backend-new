@@ -1,37 +1,54 @@
+
+
 const { Partner, ServiceRequestBundle, PartnerKey, WebhookLog } = require('../models');
 const crypto = require('crypto');
 const axios = require('axios');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const S3Service = require('../services/S3Service');
-const generateWebhookSecret = () => {
-  return `whsec_${crypto.randomBytes(32).toString('hex')}`;  // Added prefix for clarity
+
+
+const generateApiKey = () => {
+  return `htz_${crypto.randomBytes(16).toString('hex')}`;
 };
+
+const generateSecretKey = () => {
+  return `htzsk_${crypto.randomBytes(24).toString('hex')}`;
+};
+
+const generateWebhookSecret = () => {
+  return `whsec_${crypto.randomBytes(32).toString('hex')}`;
+};
+
+
+
 
 const partnerController = {
   // Create a new partner
+  // Replace your createPartner method with this secure version:
   async createPartner(req, res) {
     try {
       const { name, registration_code } = req.body;
-
+  
       if (!name || !registration_code) {
         return res.status(400).json({ message: 'Name and Registration Code are required.' });
       }
-
+  
       // Create the Partner
       const partner = await Partner.create({ name, registration_code });
-
-      // Generate API and Secret Keys with Prefixes
-      const apiKey = `whec-${crypto.randomBytes(16).toString('hex')}`;
-      const secretKey = `htzs-${crypto.randomBytes(32).toString('hex')}`;
-
+  
+      // 🔒 Generate API and Secret Keys with Industry Standard Format
+      const apiKey = generateApiKey();
+      const secretKey = generateSecretKey();
+  
       // Save the keys to the PartnerKeys table
       await PartnerKey.create({
         partnerId: partner.id,
         api_key: apiKey,
         secret_key: secretKey,
       });
-
+  
+      // 🔒 SECURITY: Only return secret_key ONCE, with clear warning
       res.status(201).json({
         message: 'Partner created successfully',
         partner: {
@@ -39,12 +56,67 @@ const partnerController = {
           name: partner.name,
           registration_code: partner.registration_code,
           api_key: apiKey,
-          secret_key: secretKey,
+          secret_key: secretKey // ⚠️ SHOWN ONLY ONCE - SAVE IT NOW!
         },
+        security_warning: {
+          message: "🔒 IMPORTANT: Your secret key is shown only once for security reasons.",
+          instructions: [
+            "Save your secret key immediately - you cannot retrieve it again",
+            "Use it to generate HMAC signatures for API requests",
+            "If lost, you'll need to regenerate your API credentials"
+          ]
+        }
       });
     } catch (error) {
       console.error('Error in createPartner:', error);
       res.status(500).json({ message: 'Failed to create partner.' });
+    }
+  },
+  
+  // 🔥 Regenerate API credentials with new secure format
+  async regenerateApiCredentials(req, res) {
+    try {
+      const partner = req.current_partner || req.webhookPartner;
+      
+      if (!partner) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      // 🔒 Generate new API and Secret Keys with Industry Standard Format
+      const apiKey = generateApiKey();
+      const secretKey = generateSecretKey();
+      
+      // Find existing partner key and update it
+      const partnerKey = await PartnerKey.findOne({
+        where: { partnerId: partner.id }
+      });
+      
+      if (!partnerKey) {
+        return res.status(404).json({ error: 'Partner API keys not found' });
+      }
+      
+      // Update with new credentials
+      await partnerKey.update({
+        api_key: apiKey,
+        secret_key: secretKey
+      });
+      
+      res.status(200).json({
+        message: 'API credentials regenerated successfully',
+        api_key: apiKey,
+        secret_key: secretKey, // ⚠️ SHOWN ONLY ONCE
+        security_warning: {
+          message: "🔒 Your old credentials are now invalid. Update your integration immediately.",
+          instructions: [
+            "Replace your old API key and secret in your application",
+            "Test your integration with the new credentials",
+            "This secret key will not be shown again"
+          ]
+        }
+      });
+    } catch (error) {
+      console.error('Error regenerating API credentials:', error);
+      res.status(500).json({ error: 'Failed to regenerate API credentials' });
     }
   },
 
@@ -117,28 +189,32 @@ const partnerController = {
   async login(req, res) {
     try {
       const { email, password } = req.body;
-
+  
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required.' });
       }
-
+  
       const partner = await Partner.findOne({ where: { email } });
       if (!partner) {
         return res.status(404).json({ error: 'Invalid email or password.' });
       }
-
+  
       const isMatch = await bcrypt.compare(password, partner.password);
       if (!isMatch) {
         return res.status(401).json({ error: 'Invalid email or password.' });
       }
-
+  
+      // 🔥 SIMPLE: Generate regular JWT for dashboard sessions
       const token = jwt.sign(
         { id: partner.id, email: partner.email },
         process.env.JWT_SECRET,
         { expiresIn: '1h' }
       );
-
-      res.status(200).json({ token, message: 'Login successful' });
+  
+      res.status(200).json({ 
+        token, 
+        message: 'Login successful'
+      });
     } catch (error) {
       console.error('Error during login:', error.message);
       res.status(500).json({ error: 'Failed to log in.' });
@@ -162,15 +238,15 @@ const partnerController = {
         where: { partner_id: partnerId },
         attributes: [
           'id',
-          'eventType',
+          'event_type',    // ✅ CORRECT
           'status',
-          'statusCode',
+          'status_code',   // ✅ CORRECT  
           'payload',
           'response',
           'error',
-          'createdAt'
+          'created_at'     // ✅ CORRECT
         ],
-        order: [['createdAt', 'DESC']],
+        order: [['created_at', 'DESC']], // ✅ CORRECT
         limit: 20
       });
   
@@ -248,18 +324,25 @@ const partnerController = {
   // Retrieve API keys for a partner
   async getApiKeys(req, res) {
     try {
-      const { partnerId } = req.params;
-
+      const partner = req.current_partner || req.webhookPartner;
+      
+      if (!partner) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+  
       const apiKeys = await PartnerKey.findAll({
-        where: { partnerId },
-        attributes: ['id', 'api_key', 'secret_key'],
+        where: { partnerId: partner.id },
+        attributes: ['id', 'api_key'] // 🔒 REMOVED secret_key for security
       });
-
+  
       if (!apiKeys || apiKeys.length === 0) {
         return res.status(404).json({ error: 'No API keys found for this partner' });
       }
-
-      res.status(200).json({ apiKeys });
+  
+      res.status(200).json({ 
+        apiKeys,
+        note: "Secret keys are not displayed for security reasons. Use the regenerate endpoint if you need new credentials."
+      });
     } catch (error) {
       console.error('Error fetching API keys:', error);
       res.status(500).json({ error: 'Failed to fetch API keys' });

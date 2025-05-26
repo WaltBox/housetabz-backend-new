@@ -21,6 +21,7 @@ const { startBillSchedulers } = require('./utils/billScheduler');
 // const { authenticatePartner } = require('./middleware/auth/partnerAuth');
 // const { authenticateWebhook } = require('./middleware/auth/webhookAuth');
 // Import route files
+const sdkRoutes = require('./routes/sdkRoutes')
 const userRoutes = require('./routes/userRoutes');
 const houseRoutes = require('./routes/houseRoutes');
 const serviceRequestBundleRoutes = require('./routes/serviceRequestBundleRoutes');
@@ -60,16 +61,17 @@ const corsOptions = {
     'http://localhost:3000',
     'https://www.housetabz.com',
     'https://housetabz.com',
-    'https://f932-2605-a601-a0c6-4f00-254d-d042-938f-f537.ngrok-free.app/cleaning-test.html',
     'com.housetabz.mobile://',
     'http://localhost:3001',
-    'https://bf47-2605-a601-a0c6-4f00-dba-dbb2-eddb-4289.ngrok-free.app'
+    'http://localhost:8080',
+    'https://ad24-2605-a601-a0f0-dd00-550d-8071-2819-dd8f.ngrok-free.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
-    'X-HouseTabz-API-Key', 
-    'X-HouseTabz-Secret-Key',
+    'x-api-key',           // ✅ API key (safe to expose)
+    'housetabz-timestamp', // ✅ For HMAC signatures
+    'housetabz-signature', // ✅ HMAC signature (not the raw secret)
     'Origin', 
     'Accept',
     'Authorization',
@@ -120,6 +122,7 @@ app.use('/api/stripe/webhook', require('./routes/stripeWebhookRoutes'));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Apply routes
+app.use('/api/sdk', sdkRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/houses', houseRoutes);
 app.use('/api/partners', partnerRoutes);
@@ -148,6 +151,7 @@ app.use('/api', feedbackRoutes );
 app.use('/api', reminderRoutes);
 app.use('/api', HouseServiceLedgerRoutes)
 app.use('/api/urgent-messages', urgentMessageRoutes);
+
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {

@@ -1,229 +1,367 @@
 // src/controllers/partnerBillController.js
 const {
-    HouseService,
-    Bill,
-    // Charge,   // No longer needed to manually create charges here
-    User,
-    sequelize
-    // WebhookLog  // Remove if not used here
-  } = require('../models');
-  const billService = require('../services/billService'); // Use the centralized bill service
-  const { createLogger } = require('../utils/logger');
+  HouseService,
+  Bill,
+  User,
+  sequelize
+} = require('../models');
+const { Op } = require('sequelize');
+const billService = require('../services/billService');
+const webhookService = require('../services/webhookService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('partner-bill-controller');
+
+exports.createBill = async (req, res) => {
+  const transaction = await sequelize.transaction();
   
-  const logger = createLogger('partner-bill-controller');
-  
-  exports.createBill = async (req, res) => {
-    const transaction = await sequelize.transaction();
-    try {
-      // Get partner identifier from the authenticated partner.
-      // (Depending on your auth middleware, req.partner might be an object or an ID.)
-      const partnerId = req.partner.id || req.partner;
-  
-      // Extract required parameters from request body.
-      // externalBillId is used to avoid duplicate bill creations.
-      const {
+  try {
+    // Get partner identifier from the authenticated partner
+    const partnerId = req.partner.id || req.partner;
+
+    // Extract required parameters from request body
+    const {
+      houseTabzAgreementId,
+      externalAgreementId,
+      externalBillId,
+      amount,
+      dueDate,
+      billingPeriod
+    } = req.body;
+
+    // Validate required fields
+    if (!houseTabzAgreementId || !externalBillId || !amount || !dueDate) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'Missing required fields: houseTabzAgreementId, externalBillId, amount, and dueDate are required'
+      });
+    }
+
+    // Validate amount is a positive number
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'Amount must be a positive number'
+      });
+    }
+
+    // Validate and parse due date
+    const parsedDueDate = new Date(dueDate);
+    if (isNaN(parsedDueDate.getTime())) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'Invalid dueDate format. Use ISO 8601 format (e.g., 2025-05-15T00:00:00.000Z)'
+      });
+    }
+
+    // Look up the house service by houseTabzAgreementId and partnerId
+    const houseService = await HouseService.findOne({
+      where: { 
         houseTabzAgreementId,
-        externalAgreementId,
+        partnerId
+      },
+      transaction
+    });
+
+    if (!houseService) {
+      await transaction.rollback();
+      return res.status(404).json({
+        error: 'House service not found for this agreement ID'
+      });
+    }
+
+    // Ensure the service is active
+    if (houseService.status !== 'active') {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: `Cannot create bill for service in ${houseService.status} status`
+      });
+    }
+
+    // Check for existing bill with the same externalBillId (PostgreSQL JSONB query)
+    const existingBill = await Bill.findOne({
+      where: {
+        houseService_id: houseService.id,
+        [Op.and]: [
+          sequelize.literal(`metadata->>'externalBillId' = :externalBillId`)
+        ]
+      },
+      replacements: { externalBillId },
+      transaction
+    });
+
+    if (existingBill) {
+      await transaction.rollback();
+      return res.status(409).json({
+        error: 'Bill already exists for this externalBillId',
+        billId: existingBill.id,
+        existingAmount: parseFloat(existingBill.amount).toFixed(2),
+        existingStatus: existingBill.status
+      });
+    }
+
+    // Use the centralized bill creation service
+    logger.info(`Creating bill for service ${houseService.id} with amount $${parsedAmount}`);
+    
+    const result = await billService.createBill({
+      service: houseService,
+      baseAmount: parsedAmount,
+      transaction,
+      customDueDate: parsedDueDate
+    });
+
+    // Update the bill metadata with partner-specific details
+    await result.bill.update({
+      metadata: {
+        ...result.bill.metadata,
         externalBillId,
-        amount,
-        dueDate,
-        billingPeriod
-      } = req.body;
-  
-      // Validate required fields.
-      if (!houseTabzAgreementId || !externalBillId || !amount || !dueDate) {
-        await transaction.rollback();
-        return res.status(400).json({
-          error: 'Missing required fields: houseTabzAgreementId, externalBillId, amount, and dueDate are required'
-        });
+        externalAgreementId: externalAgreementId || null,
+        billingPeriod: billingPeriod || null,
+        source: 'partner_api',
+        partnerId: partnerId,
+        createdViaAPI: true,
+        apiTimestamp: new Date().toISOString()
       }
-  
-      // Look up the house service by houseTabzAgreementId and partnerId.
-      const houseService = await HouseService.findOne({
-        where: { 
-          houseTabzAgreementId,
-          partnerId
-        },
-        // Inclusion of users is not necessary here since the bill service will fetch users.
-        transaction
-      });
-  
-      if (!houseService) {
-        await transaction.rollback();
-        return res.status(404).json({
-          error: 'House service not found for this agreement ID'
-        });
+    }, { transaction });
+
+    // Commit the transaction first
+    await transaction.commit();
+    
+    // Prepare success response
+    const successResponse = {
+      message: 'Bill created successfully',
+      billId: result.bill.id,
+      amount: parseFloat(result.bill.amount).toFixed(2),
+      status: result.bill.status,
+      dueDate: result.bill.dueDate.toISOString(),
+      chargesCreated: result.charges.length
+    };
+
+    // Send response immediately after successful commit
+    res.status(201).json(successResponse);
+
+    // Send webhook notification AFTER response (non-blocking)
+    // This prevents webhook errors from affecting the API response
+    setImmediate(async () => {
+      try {
+        await webhookService.sendWebhook(
+          partnerId,
+          'bill.created',
+          {
+            event: 'bill.created',
+            houseTabzAgreementId: houseService.houseTabzAgreementId,
+            externalAgreementId: externalAgreementId || null,
+            externalBillId,
+            billId: result.bill.id,
+            amount: parsedAmount,
+            totalAmount: parseFloat(result.bill.amount).toFixed(2),
+            dueDate: parsedDueDate.toISOString(),
+            billingPeriod: billingPeriod || null,
+            chargesCreated: result.charges.length,
+            status: 'pending'
+          }
+        );
+      } catch (webhookError) {
+        // Log webhook error but don't affect the API response
+        logger.error(`Failed to send bill.created webhook to partner ${partnerId}:`, webhookError);
       }
-  
-      // Ensure the service is active.
-      if (houseService.status !== 'active') {
-        await transaction.rollback();
-        return res.status(400).json({
-          error: `Cannot create bill for service in ${houseService.status} status`
-        });
-      }
-  
-      // Check for an existing bill with the same externalBillId.
-      // (The new bill service does not perform this duplicate check.
-      // You may want to preserve it here.)
-      const existingBill = await Bill.findOne({
-        where: {
-          houseService_id: houseService.id,
-          // Sequelize does not support querying nested JSON fields directly in a portable manner.
-          // Adjust the query according to your DB setup (e.g., using PostgreSQL JSON operators).
-          // Here we assume a simple check for clarity.
-          metadata: { externalBillId }
-        },
-        transaction
-      });
-  
-      if (existingBill) {
-        await transaction.rollback();
-        return res.status(409).json({
-          error: 'Bill already exists for this externalBillId',
-          billId: existingBill.id
-        });
-      }
-  
-      // Use the centralized bill creation logic.
-      // By calling createBill, we let the service perform fee calculations, create charges, send notifications,
-      // and update balances. We pass in the custom due date (converted to a Date object) and the partner as the creator.
-      const result = await billService.createBill({
-        service: houseService,
-        baseAmount: amount,
-        createdBy: partnerId,
-        transaction,
-        customDueDate: new Date(dueDate)
-      });
-  
-      // Optionally, update the bill metadata with partner-specific details.
-      await result.bill.update({
-        metadata: {
-          ...result.bill.metadata,
-          externalBillId,
-          externalAgreementId,
-          billingPeriod,
-          source: 'partner_api'
-        }
-      }, { transaction });
-  
-      await transaction.commit();
-  
-      res.status(201).json({
-        message: 'Bill created successfully',
-        billId: result.bill.id,
-        amount: result.bill.amount,
-        status: result.bill.status,
-        dueDate: result.bill.dueDate,
-        chargesCreated: result.charges.length
-      });
-    } catch (error) {
+    });
+
+  } catch (error) {
+    // Only rollback if transaction is still active
+    if (!transaction.finished) {
       await transaction.rollback();
-      logger.error('Error creating bill from partner:', error);
-      res.status(500).json({
-        error: 'Failed to create bill',
-        message: error.message
+    }
+    
+    logger.error('Error creating bill from partner:', error);
+    
+    // Return appropriate error response
+    if (error.message.includes('No users found')) {
+      return res.status(400).json({
+        error: 'No housemates found for this agreement',
+        message: 'The house associated with this agreement has no active users'
       });
     }
-  };
+    
+    res.status(500).json({
+      error: 'Failed to create bill',
+      message: error.message
+    });
+  }
+};
+
+exports.updateBill = async (req, res) => {
+  const transaction = await sequelize.transaction();
   
-  exports.updateBill = async (req, res) => {
-    const transaction = await sequelize.transaction();
-    try {
-      const partnerId = req.partner.id || req.partner;
-      const { externalBillId } = req.params;
-      const { amount, dueDate } = req.body;
-  
-      // Validate that there is something to update.
-      if (!amount && !dueDate) {
-        await transaction.rollback();
-        return res.status(400).json({
-          error: 'No update fields provided'
-        });
-      }
-  
-      // Find the bill by externalBillId in the metadata.
-      // (Adapt the lookup for your JSON structure and DB if necessary.)
-      const bill = await Bill.findOne({
-        where: {
-          metadata: { externalBillId }
-        },
-        include: [{
-          model: HouseService,
-          as: 'houseService',
-          where: { partnerId }
-        }],
-        transaction
+  try {
+    const partnerId = req.partner.id || req.partner;
+    const { externalBillId } = req.params;
+    const { amount, dueDate } = req.body;
+
+    // Validate that there is something to update
+    if (!amount && !dueDate) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'No update fields provided. Specify amount and/or dueDate'
       });
-  
-      if (!bill) {
-        await transaction.rollback();
-        return res.status(404).json({
-          error: 'Bill not found'
-        });
-      }
-  
-      // Do not allow updates if the bill is already paid.
-      if (bill.status === 'paid') {
-        await transaction.rollback();
-        return res.status(400).json({
-          error: 'Cannot update a bill that has already been paid'
-        });
-      }
-  
-      const updates = {};
-  
-      // If the amount is being updated, recalculate fees.
-      // Note: This controller is still manually handling the update logic.
-      // You might eventually want to centralize update behavior in your bill service.
-      if (amount) {
-        // Here we recalculate fees with the original 5% logic;
-        // you may modify this to mirror your bill service fee calculation if needed.
-        const serviceFeeRate = 0.05;
-        const serviceFee = parseFloat((amount * serviceFeeRate).toFixed(2));
-        const totalAmount = parseFloat(amount) + serviceFee;
-  
-        updates.amount = totalAmount;
-        updates.baseAmount = amount;
-        updates.serviceFeeTotal = serviceFee;
-      }
-  
-      // Update due date if provided.
-      if (dueDate) {
-        updates.dueDate = new Date(dueDate);
-      }
-  
-      // Update the bill record.
-      await bill.update(updates, { transaction });
-  
-      // If the amount changed, update all related charges.
-      if (amount) {
-        const charges = await bill.getCharges({ transaction });
-        const shareAmount = parseFloat((updates.amount / charges.length).toFixed(2));
-  
-        for (const charge of charges) {
-          await charge.update({ amount: shareAmount }, { transaction });
-        }
-      }
-  
-      await transaction.commit();
-  
-      res.status(200).json({
-        message: 'Bill updated successfully',
+    }
+
+    // Find the bill by externalBillId in the metadata (PostgreSQL JSONB query)
+    const bill = await Bill.findOne({
+      where: {
+        [Op.and]: [
+          sequelize.literal(`metadata->>'externalBillId' = :externalBillId`)
+        ]
+      },
+      include: [{
+        model: HouseService,
+        as: 'houseServiceModel', // Use correct alias
+        where: { partnerId }
+      }],
+      replacements: { externalBillId },
+      transaction
+    });
+
+    if (!bill) {
+      await transaction.rollback();
+      return res.status(404).json({
+        error: 'Bill not found',
+        message: `No bill found with externalBillId: ${externalBillId}`
+      });
+    }
+
+    // Do not allow updates if the bill is already paid
+    if (bill.status === 'paid') {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: 'Cannot update a bill that has already been paid',
         billId: bill.id,
-        amount: bill.amount,
-        dueDate: bill.dueDate,
-        status: bill.status
-      });
-    } catch (error) {
-      await transaction.rollback();
-      logger.error('Error updating bill from partner:', error);
-      res.status(500).json({
-        error: 'Failed to update bill',
-        message: error.message
+        currentStatus: bill.status
       });
     }
-  };
-  
-  module.exports = exports;
-  
+
+    const updates = {};
+    let shouldRecalculateCharges = false;
+
+    // Handle amount update
+    if (amount) {
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: 'Amount must be a positive number'
+        });
+      }
+
+      // Recalculate fees using the same logic as bill service
+      const users = await User.findAll({
+        where: { houseId: bill.houseServiceModel.houseId },
+        transaction
+      });
+
+      const numberOfUsers = users.length;
+      const baseServiceFeeRate = bill.houseServiceModel.feeCategory === 'card' ? 2.00 : 0.00;
+      const totalBaseServiceFee = numberOfUsers * baseServiceFeeRate;
+      
+      // For simplicity, use fee multiplier of 1.0 for updates
+      const totalServiceFee = totalBaseServiceFee;
+      const totalAmount = parseFloat((parsedAmount + totalServiceFee).toFixed(2));
+
+      updates.baseAmount = parsedAmount;
+      updates.serviceFeeTotal = totalServiceFee;
+      updates.amount = totalAmount;
+      shouldRecalculateCharges = true;
+    }
+
+    // Handle due date update
+    if (dueDate) {
+      const parsedDueDate = new Date(dueDate);
+      if (isNaN(parsedDueDate.getTime())) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: 'Invalid dueDate format. Use ISO 8601 format'
+        });
+      }
+      updates.dueDate = parsedDueDate;
+    }
+
+    // Update the bill record
+    await bill.update(updates, { transaction });
+
+    // Update related charges if amount changed
+    if (shouldRecalculateCharges) {
+      const charges = await bill.getCharges({ transaction });
+      const baseShareAmount = parseFloat((updates.baseAmount / charges.length).toFixed(2));
+      const feeShareAmount = parseFloat((updates.serviceFeeTotal / charges.length).toFixed(2));
+      const totalShareAmount = parseFloat((baseShareAmount + feeShareAmount).toFixed(2));
+
+      for (const charge of charges) {
+        await charge.update({
+          baseAmount: baseShareAmount,
+          serviceFee: feeShareAmount,
+          amount: totalShareAmount,
+          dueDate: updates.dueDate || charge.dueDate
+        }, { transaction });
+      }
+    } else if (updates.dueDate) {
+      // Update just the due date on charges
+      const charges = await bill.getCharges({ transaction });
+      for (const charge of charges) {
+        await charge.update({ dueDate: updates.dueDate }, { transaction });
+      }
+    }
+
+    // Commit transaction first
+    await transaction.commit();
+
+    // Prepare success response
+    const successResponse = {
+      message: 'Bill updated successfully',
+      billId: bill.id,
+      amount: parseFloat(bill.amount).toFixed(2),
+      dueDate: bill.dueDate.toISOString(),
+      status: bill.status
+    };
+
+    // Send response immediately
+    res.status(200).json(successResponse);
+
+    // Send webhook notification AFTER response (non-blocking)
+    setImmediate(async () => {
+      try {
+        await webhookService.sendWebhook(
+          partnerId,
+          'bill.updated',
+          {
+            event: 'bill.updated',
+            houseTabzAgreementId: bill.houseServiceModel.houseTabzAgreementId,
+            externalBillId,
+            billId: bill.id,
+            amount: bill.baseAmount,
+            totalAmount: parseFloat(bill.amount).toFixed(2),
+            dueDate: bill.dueDate.toISOString(),
+            status: bill.status,
+            updatedFields: Object.keys(updates)
+          }
+        );
+      } catch (webhookError) {
+        logger.error(`Failed to send bill.updated webhook to partner ${partnerId}:`, webhookError);
+      }
+    });
+
+  } catch (error) {
+    // Only rollback if transaction is still active
+    if (!transaction.finished) {
+      await transaction.rollback();
+    }
+    
+    logger.error('Error updating bill from partner:', error);
+    res.status(500).json({
+      error: 'Failed to update bill',
+      message: error.message
+    });
+  }
+};
+
+module.exports = exports;
