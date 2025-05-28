@@ -352,7 +352,8 @@ const paymentController = {
             }, { transaction });
           }
           
-          // Update user's financial data using the finance service
+          // FIXED: Use processUserPayment which handles BOTH user and house balance updates
+          // This replaces the duplicate house balance update that was causing the 2x deduction
           await financeService.processUserPayment(
             userId,
             totalAmount,
@@ -371,23 +372,8 @@ const paymentController = {
           userFinance.points += totalPointsEarned;
           await userFinance.save({ transaction });
   
-          // If user belongs to a house, update house balance
-          if (user.houseId) {
-            // Update house financial data using the finance service
-            await financeService.updateHouseBalance(
-              user.houseId,
-              totalAmount,
-              'PAYMENT',
-              'User payment for charges',
-              transaction,
-              {
-                userId,
-                paymentId: payment.id,
-                chargeIds: chargeIds.join(','),
-                stripePaymentIntentId: paymentIntent.id
-              }
-            );
-          }
+          // Note: House balance is automatically updated by processUserPayment above
+          // No need for a separate updateHouseBalance call
         }
   
         await transaction.commit();
