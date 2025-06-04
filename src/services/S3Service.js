@@ -5,9 +5,7 @@ require('dotenv').config();
 
 class S3Service {
   constructor() {
-    console.log('Initializing S3 Service...');
-    console.log('Using region:', process.env.AWS_REGION);
-    console.log('Using bucket:', process.env.AWS_S3_BUCKET);
+
     
     this.client = new S3Client({
       region: process.env.AWS_REGION,
@@ -33,18 +31,14 @@ class S3Service {
     };
 
     try {
-      console.log('Starting S3 upload with params:', {
-        Bucket: params.Bucket,
-        Key: params.Key,
-        ContentType: params.ContentType
-      });
+  
 
       const command = new PutObjectCommand(params);
       const result = await this.client.send(command);
       
       // Construct the URL
       const url = `https://${this.bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
-      console.log('File uploaded successfully:', url);
+     
       
       return {
         url,
@@ -71,10 +65,10 @@ class S3Service {
     };
 
     try {
-      console.log('Attempting to delete file from S3:', key);
+     
       const command = new DeleteObjectCommand(params);
       await this.client.send(command);
-      console.log('File deleted successfully:', key);
+
     } catch (error) {
       console.error('S3 delete error:', error);
       // Don't throw on delete errors, just log them

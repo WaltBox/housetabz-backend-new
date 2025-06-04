@@ -2,7 +2,7 @@
 const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House, UserFinance, HouseFinance, Bill } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
-const hsiService = require('../services/hsiService');
+const hsiService = require('../services/houseRiskService');
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
 const financeService = require('../services/financeService');
@@ -169,12 +169,7 @@ const paymentController = {
       const idempotencyKey = req.headers['idempotency-key'];
       const userId = req.user.id;
   
-      console.log("Payment request details:", {
-        userId,
-        chargeIds,
-        paymentMethodId,
-        idempotencyKey
-      });
+  
 
       if (!idempotencyKey) {
         return res.status(400).json({ 
@@ -278,14 +273,13 @@ const paymentController = {
             // Get the bill for this charge
             const bill = await Bill.findByPk(charge.billId, { transaction });
             if (!bill) {
-              console.log(`No bill found for charge ${charge.id}, skipping ledger update`);
               continue;
             }
 
             // FIXED: Directly query for the HouseService using the bill's houseService_id
             const houseService = await sequelize.models.HouseService.findByPk(bill.houseService_id, { transaction });
             if (!houseService) {
-              console.log(`No houseService found for bill ${bill.id}, skipping ledger update`);
+
               continue;
             }
 
@@ -300,7 +294,7 @@ const paymentController = {
             });
             
             if (!ledger) {
-              console.log(`No active ledger found for houseService ${houseService.id}, skipping ledger update`);
+             
               continue;
             }
 
@@ -312,7 +306,7 @@ const paymentController = {
             
             // Track user contribution in metadata, but skip updating funded again
             await ledger.addContribution(charge.userId, charge.amount, charge.id, transaction, true);
-            console.log(`💰 CHARGE ${charge.id}: contribution recorded in ledger ${ledger.id}`);
+          
           } catch (error) {
             console.error(`Error updating ledger for charge ${charge.id}:`, error);
             // Continue processing other charges even if one fails
@@ -322,7 +316,7 @@ const paymentController = {
         // For each charge, calculate payment points 
         for (const charge of charges) {
           const pointsEarned = calculatePaymentPoints(charge);
-          console.log(`DEBUG: charge ${charge.id} pointsEarned =`, pointsEarned);
+
           // Update the charge metadata
           await charge.update({
             metadata: {

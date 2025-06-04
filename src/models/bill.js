@@ -124,8 +124,7 @@ module.exports = (sequelize, DataTypes) => {
             houseService.billingSource === 'partner' &&
             this.metadata?.externalBillId
           ) {
-            console.log(`Sending bill.paid webhook for billId: ${this.id}, externalBillId: ${this.metadata.externalBillId}`);
-
+           
             // 🚀 USE THE NEW WEBHOOK SERVICE WITH SIGNATURES!
             const result = await webhookService.sendWebhook(
               houseService.partnerId,
@@ -140,7 +139,7 @@ module.exports = (sequelize, DataTypes) => {
             );
 
             if (result.success) {
-              console.log('Bill.paid webhook sent successfully');
+            
             } else {
               console.error('Bill.paid webhook failed:', result.error || result.reason);
             }

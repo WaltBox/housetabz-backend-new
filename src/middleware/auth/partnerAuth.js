@@ -47,14 +47,7 @@ const authenticatePartner = async (req, res, next) => {
       
     const expectedSignatureWithPrefix = `sha256=${expectedSignature}`;
 
-    console.log('=== SIGNATURE DEBUG ===');
-    console.log('Received timestamp:', timestamp);
-    console.log('Received signature:', signature);
-    console.log('Request body JSON:', JSON.stringify(req.body));
-    console.log('Signed payload:', signedPayload);
-    console.log('Expected signature:', expectedSignatureWithPrefix);
-    console.log('=====================');
-    
+   
     // Use timing-safe comparison to prevent timing attacks
     if (!crypto.timingSafeEqual(
       Buffer.from(signature, 'utf8'),

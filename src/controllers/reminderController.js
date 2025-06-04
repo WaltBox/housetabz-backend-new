@@ -136,7 +136,7 @@ exports.sendReminder = async (req, res, next) => {
           }
         }
       );
-      console.log('Push notification sent successfully');
+     
     } catch (pushError) {
       console.error('Error sending push notification:', pushError);
       // Continue execution - don't let push notification failure affect the API response

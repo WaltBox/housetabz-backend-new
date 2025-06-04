@@ -82,7 +82,7 @@ module.exports = {
         ALTER TABLE "HouseServices" ALTER COLUMN "feeCategory" SET NOT NULL;
       `);
       
-      console.log('Migration completed successfully!');
+     
     } catch (error) {
       console.error('Migration failed:', error);
       throw error;
@@ -112,7 +112,7 @@ module.exports = {
         ALTER TABLE "HouseServices" ALTER COLUMN "feeCategory" SET DEFAULT 'marketplace';
       `);
       
-      console.log('Rollback completed successfully!');
+
     } catch (error) {
       console.error('Rollback failed:', error);
       throw error;

@@ -71,15 +71,7 @@ const takeOverRequestController = {
         }
       }
   
-      console.log('Creating TakeOverRequest with data:', {
-        serviceName,
-        accountNumber,
-        monthlyAmount: isFixedService ? monthlyAmount : null,
-        dueDate,
-        requiredUpfrontPayment: requiredUpfrontPayment || 0,
-        serviceType,
-        status: 'pending'
-      });
+  
   
       // Create the TakeOverRequest
       const takeOverRequest = await TakeOverRequest.create({
@@ -163,13 +155,7 @@ const takeOverRequestController = {
           paymentStatus: paymentRequired ? 'pending' : 'not_required'
         };
       });
-  
-      console.log('Creating tasks with monthly amount:', {
-        individualMonthlyAmount,
-        totalRoommates,
-        isFixedService,
-        totalMonthlyAmount: monthlyAmount
-      });
+
   
       const createdTasks = await Task.bulkCreate(tasks, { transaction, individualHooks: true });
 

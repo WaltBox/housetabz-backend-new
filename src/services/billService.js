@@ -10,7 +10,7 @@ const {
   DeviceToken,
   sequelize 
 } = require('../models');
-const hsiService = require('./hsiService');
+const hsiService = require('./houseRiskService');
 const financeService = require('./financeService');
 const pushNotificationService = require('./pushNotificationService');
 const { Op } = require('sequelize');

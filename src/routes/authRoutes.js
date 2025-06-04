@@ -11,7 +11,7 @@ router.use(['/login', '/register'], authLimiter);
 // Public routes
 router.post('/login', authController.login);
 router.post('/register', authController.register);
-router.post('/refresh-token', authController.refreshToken); // Add this if you have a refresh endpoint
+router.post('/refresh', authController.refreshToken);
 
 // In your auth routes
 router.post('/request-reset-code', authController.requestPasswordReset);

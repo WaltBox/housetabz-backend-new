@@ -26,6 +26,28 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
+    phoneNumber: {
+      type: DataTypes.STRING,
+      allowNull: true, // Keep as optional in DB for existing users
+      validate: {
+        customValidator(value) {
+          // For new registrations, phone number is required
+          if (this.isNewRecord && (!value || value.trim() === '')) {
+            throw new Error("Phone number is required");
+          }
+          
+          // Very basic validation - just check it's not empty or too short/long
+          if (value && value.trim()) {
+            const trimmedValue = value.trim();
+            
+            // Just check reasonable length - be very permissive
+            if (trimmedValue.length < 7 || trimmedValue.length > 17) {
+              throw new Error("Phone number must be between 7 and 17 characters");
+            }
+          }
+        }
+      }
+    },
     houseId: {
       type: DataTypes.INTEGER,
       allowNull: true,

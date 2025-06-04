@@ -7,7 +7,7 @@ const taskController = {
       const { taskId } = req.params;
       const { response } = req.body;
 
-      console.log('Updating task:', { taskId, response });
+
 
       if (!['accepted', 'rejected'].includes(response)) {
         return res.status(400).json({ error: 'Invalid response value' });
@@ -29,13 +29,6 @@ const taskController = {
         return res.status(404).json({ error: 'Task not found' });
       }
 
-      console.log('Current task state:', {
-        taskId: task.id,
-        currentStatus: task.status,
-        currentResponse: task.response,
-        paymentRequired: task.paymentRequired,
-        paymentStatus: task.paymentStatus
-      });
 
       // Handle rejection: rejection completes the task regardless of payment
       if (response === 'rejected') {
@@ -87,7 +80,7 @@ const taskController = {
   async getTasksByUser(req, res) {
     try {
       const { userId } = req.params;
-      console.log(`Fetching tasks for user ${userId}`); // Debug log
+   
       
       const tasks = await Task.findAll({ 
         where: { userId },
@@ -106,9 +99,8 @@ const taskController = {
       res.status(200);
       
       if (!tasks.length) {
-        console.log(`No tasks found for user ${userId}, returning 200 with empty array`); // Debug log
+      
       } else {
-        console.log(`Found ${tasks.length} tasks for user ${userId}`); // Debug log
       }
       
       return res.json({

@@ -5,7 +5,17 @@ const { Op } = require('sequelize');  // Add this import
 // Create a new user
 exports.createUser = async (req, res, next) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, phoneNumber } = req.body;
+
+    // Validate required fields
+    if (!username || !email || !password || !phoneNumber) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Validate phone number format
+    if (!/^[\+]?[1-9][\d]{0,15}$/.test(phoneNumber)) {
+      return res.status(400).json({ message: 'Please enter a valid phone number' });
+    }
 
     // Check if user exists
     const existingUser = await User.findOne({
@@ -25,7 +35,8 @@ exports.createUser = async (req, res, next) => {
     const user = await User.create({
       username,
       email,
-      password // Will be hashed by User model's beforeCreate hook
+      password, // Will be hashed by User model's beforeCreate hook
+      phoneNumber: phoneNumber.trim() // Trim whitespace
     });
 
     // Return user without password
@@ -34,13 +45,14 @@ exports.createUser = async (req, res, next) => {
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        phoneNumber: user.phoneNumber
       }
     });
   } catch (error) {
     console.error('Error creating user:', error);
     if (error.name === 'SequelizeValidationError') {
-      return res.status(400).json({ message: 'Validation error' });
+      return res.status(400).json({ message: 'Validation error', errors: error.errors });
     }
     next(error);
   }
@@ -50,7 +62,7 @@ exports.createUser = async (req, res, next) => {
 exports.getAllUsers = async (req, res, next) => {
   try {
     const users = await User.findAll({
-      attributes: ['id', 'username', 'email']
+      attributes: ['id', 'username', 'email', 'phoneNumber']
     });
     res.json(users);
   } catch (error) {
@@ -61,7 +73,7 @@ exports.getAllUsers = async (req, res, next) => {
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
-      attributes: ['id', 'username', 'email', 'houseId'],
+      attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId'],
       include: [
         {
           model: House,
@@ -94,14 +106,26 @@ exports.getUser = async (req, res, next) => {
 
 exports.updateUser = async (req, res, next) => {
   try {
-    const { username, email, houseId } = req.body;
+    const { username, email, phoneNumber, houseId } = req.body;
     const user = await User.findByPk(req.params.id);
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    await user.update({ username, email, houseId });
+    // Prepare update data
+    const updateData = { username, email, houseId };
+    
+    // Only include phoneNumber if it's provided and not empty
+    if (phoneNumber && phoneNumber.trim()) {
+      // Validate phone number format if provided
+      if (!/^[\+]?[1-9][\d]{0,15}$/.test(phoneNumber.trim())) {
+        return res.status(400).json({ message: 'Please enter a valid phone number' });
+      }
+      updateData.phoneNumber = phoneNumber.trim();
+    }
+    
+    await user.update(updateData);
     
     res.json({
       message: 'User updated successfully',
@@ -109,10 +133,14 @@ exports.updateUser = async (req, res, next) => {
         id: user.id,
         username: user.username,
         email: user.email,
+        phoneNumber: user.phoneNumber,
         houseId: user.houseId
       }
     });
   } catch (error) {
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ message: 'Validation error', errors: error.errors });
+    }
     next(error);
   }
 };

@@ -89,7 +89,7 @@ module.exports = (sequelize, DataTypes) => {
     const logPrefix = `CHARGE ${this.id}`;
 
     try {
-      console.log(`⚡ ${logPrefix}: starting processPayment`);
+      
 
       // Set status to processing
       this.status = 'processing';
@@ -106,7 +106,7 @@ module.exports = (sequelize, DataTypes) => {
         paidDate: new Date().toISOString()
       };
       await this.save({ transaction });
-      console.log(`✅ ${logPrefix}: marked as paid`);
+    
 
       // Load bill and house service
       const bill = await this.getBill({ transaction });
@@ -128,14 +128,14 @@ module.exports = (sequelize, DataTypes) => {
 
       // Track user contribution in metadata
       await ledger.addContribution(this.userId, this.amount, this.id, transaction);
-      console.log(`💰 ${logPrefix}: contribution recorded in ledger ${ledger.id}`);
+   
 
       // Update bill status
       await bill.updateStatus(transaction);
-      console.log(`📦 ${logPrefix}: bill status updated`);
+     
 
       await transaction.commit();
-      console.log(`🚀 ${logPrefix}: process complete`);
+   
       return true;
     } catch (error) {
       await transaction.rollback();

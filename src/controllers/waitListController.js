@@ -5,12 +5,12 @@ const { sendWelcomeEmail } = require('../services/emailService');
 // Add a user to the waitlist
 exports.addToWaitList = async (req, res) => {
   try {
-    console.log('Received waitlist request:', req.body);
+
     const { name, phone, email, city, referrerId, qrId } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email || !city) {
-      console.log('Missing required fields');
+   
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
@@ -24,12 +24,12 @@ exports.addToWaitList = async (req, res) => {
       memeQRCodeId: qrId || null
     });
 
-    console.log('Waitlist entry created:', waitListEntry.toJSON());
+  
 
     // Try to send welcome email but don't let it block the response
     try {
       await sendWelcomeEmail(name, email);
-      console.log('Welcome email sent successfully');
+     
     } catch (emailError) {
       console.error('Failed to send welcome email:', emailError);
       // Continue even if email fails

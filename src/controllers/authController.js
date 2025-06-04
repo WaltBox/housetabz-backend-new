@@ -3,22 +3,9 @@ const { User, House } = require('../models');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Op } = require('sequelize'); // Import Sequelize operators
-const { generateAccessToken, verifyRefreshToken } = require('../middleware/auth/tokenUtils');
+const { generateAccessToken, generateRefreshToken, verifyRefreshToken } = require('../middleware/auth/tokenUtils');
 const { sendPasswordResetCode } = require('../services/emailService');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-
-
-const createToken = (user) => {
-  return jwt.sign(
-    { 
-      id: user.id,
-      email: user.email,
-      username: user.username 
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
-};
 
 const validateEmail = (email) => {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,7 +16,6 @@ const authController = {
   async login(req, res) {
     try {
       const { email, password } = req.body;
-      console.log('Login attempt received:', { email });
 
       // Find user
       const user = await User.findOne({ 
@@ -42,35 +28,31 @@ const authController = {
       });
 
       if (!user) {
-        console.log('User not found');
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
       // Verify password
       const isValidPassword = await user.comparePassword(password);
-      console.log('Password validation result:', isValidPassword);
 
       if (!isValidPassword) {
-        console.log('Invalid password');
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      // Generate token
-      const token = jwt.sign(
-        { id: user.id, email: user.email },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      // Generate both tokens
+      const token = generateAccessToken(user.id);
+      const refreshToken = generateRefreshToken(user.id);
 
-      // Log the response structure
+      // the response structure
       const response = {
         success: true,
         token,
+        refreshToken,
         data: {
           user: {
             id: user.id,
             email: user.email,
             username: user.username,
+            phoneNumber: user.phoneNumber,
             houseId: user.houseId,
             house: user.house,
             balance: user.balance,
@@ -79,7 +61,6 @@ const authController = {
           }
         }
       };
-      console.log('Sending response:', response);
 
       res.json(response);
     } catch (error) {
@@ -89,22 +70,74 @@ const authController = {
   },
 
   async register(req, res) {
-    console.log('Registration attempt received');
-    
     try {
-      const { username, email, password } = req.body;
+      const { username, email, password, phoneNumber } = req.body;
 
       // Input validation
       if (!username || !email || !password) {
-        console.log('Registration failed: Missing required fields');
         return res.status(400).json({
           success: false,
           message: 'Username, email, and password are required'
         });
       }
 
+      // Phone number validation and formatting
+      if (!phoneNumber || phoneNumber.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number is required'
+        });
+      }
+
+      // Clean phone number - remove all non-digit characters except +
+      let cleanedPhone = phoneNumber.replace(/[^\d+]/g, '');
+      
+      // Handle different input formats intelligently
+      if (!cleanedPhone.startsWith('+')) {
+        // Remove leading 1 if present (US country code without +)
+        if (cleanedPhone.startsWith('1') && cleanedPhone.length === 11) {
+          cleanedPhone = cleanedPhone.substring(1);
+        }
+        
+        // If we have 10 digits, assume it's a US number
+        if (cleanedPhone.length === 10) {
+          cleanedPhone = '+1' + cleanedPhone;
+        }
+        // If we have 7-9 digits, assume US number with area code missing or partial
+        else if (cleanedPhone.length >= 7 && cleanedPhone.length <= 9) {
+          // For now, we'll assume it's a US number and pad or handle as needed
+          // This is very permissive - you might want to adjust based on your user base
+          if (cleanedPhone.length === 7) {
+            // Assume local number, add common area code (you could make this smarter)
+            cleanedPhone = '+1415' + cleanedPhone; // 415 is just an example
+          } else if (cleanedPhone.length === 8) {
+            cleanedPhone = '+141' + cleanedPhone;
+          } else if (cleanedPhone.length === 9) {
+            cleanedPhone = '+14' + cleanedPhone;
+          }
+        }
+        // If we have 11+ digits, assume it already includes country code
+        else if (cleanedPhone.length >= 11) {
+          cleanedPhone = '+' + cleanedPhone;
+        }
+        // If less than 7 digits, it's probably incomplete
+        else {
+          return res.status(400).json({
+            success: false,
+            message: 'Please enter a complete phone number'
+          });
+        }
+      }
+
+      // Very basic final validation - just check it's not too long
+      if (cleanedPhone.length > 16 || cleanedPhone.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter a valid phone number'
+        });
+      }
+
       if (!validateEmail(email)) {
-        console.log('Registration failed: Invalid email format');
         return res.status(400).json({
           success: false,
           message: 'Invalid email format'
@@ -112,7 +145,6 @@ const authController = {
       }
 
       if (password.length < 6) {
-        console.log('Registration failed: Password too short');
         return res.status(400).json({
           success: false,
           message: 'Password must be at least 6 characters long'
@@ -127,7 +159,6 @@ const authController = {
       });
 
       if (existingUser) {
-        console.log('Registration failed: User already exists');
         return res.status(400).json({
           success: false,
           message: 'User with this email or username already exists'
@@ -138,26 +169,28 @@ const authController = {
       const user = await User.create({
         username,
         email,
-        password
+        password,
+        phoneNumber: cleanedPhone // Use the cleaned and formatted phone number
       });
 
-      // Generate token
-    // Generate token
-const token = createToken(user);
-console.log('Generated token:', token); // Debug log
+      // Generate both tokens
+      const token = generateAccessToken(user.id);
+      const refreshToken = generateRefreshToken(user.id);
 
-res.status(201).json({
-  success: true,
-  message: 'Registration successful',
-  data: {
-    user: {
-      id: user.id,
-      email: user.email,
-      username: user.username
-    },
-    token
-  }
-});
+      res.status(201).json({
+        success: true,
+        message: 'Registration successful',
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            phoneNumber: user.phoneNumber
+          },
+          token,
+          refreshToken
+        }
+      });
 
     } catch (error) {
       console.error('Registration error:', error);
@@ -168,6 +201,7 @@ res.status(201).json({
       });
     }
   },
+
   async refreshToken(req, res) {
     try {
       const { refreshToken } = req.body;
@@ -191,9 +225,7 @@ res.status(201).json({
       }
       
       // Get user to include in response
-      const user = await User.findByPk(decoded.id, {
-        attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit']
-      });
+      const user = await User.findByPk(decoded.id);
       
       if (!user) {
         return res.status(404).json({ 
@@ -202,14 +234,16 @@ res.status(201).json({
         });
       }
       
-      // Generate a new access token
+      // Generate a new access token (and optionally a new refresh token for rotation)
       const accessToken = generateAccessToken(user.id);
+      const newRefreshToken = generateRefreshToken(user.id); // Optional: refresh token rotation
       
       res.json({
         success: true,
         message: 'Access token refreshed successfully',
+        token: accessToken,
+        refreshToken: newRefreshToken, // Return new refresh token for rotation
         data: {
-          token: accessToken,
           user
         }
       });
@@ -224,11 +258,9 @@ res.status(201).json({
   },
 
   async getCurrentUser(req, res) {
-    console.log('Getting current user data:', { userId: req.user?.id });
-    
     try {
       const user = await User.findByPk(req.user.id, {
-        attributes: ['id', 'username', 'email', 'houseId', 'balance', 'points', 'credit'],
+        attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId', 'balance', 'points', 'credit'],
         include: [{
           model: House,
           as: 'house',
@@ -238,14 +270,11 @@ res.status(201).json({
       });
 
       if (!user) {
-        console.log('Get current user failed: User not found');
         return res.status(404).json({
           success: false,
           message: 'User not found'
         });
       }
-
-      console.log('Current user data retrieved successfully');
 
       res.json({
         success: true,
@@ -278,7 +307,6 @@ res.status(201).json({
       
       // Always return success even if user not found (for security)
       if (!user) {
-        console.log('Password reset requested for non-existent email:', email);
         return res.json({
           success: true,
           message: 'If an account with that email exists, a verification code has been sent'
@@ -287,7 +315,6 @@ res.status(201).json({
       
       // Generate 6-digit code
       const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-      console.log('Generated reset code:', resetCode); // For development only
       
       // Store hashed code in database (expires in 10 minutes)
       const hashedCode = await bcrypt.hash(resetCode, 10);

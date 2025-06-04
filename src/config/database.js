@@ -20,9 +20,9 @@ const sequelize = new Sequelize(envConfig.url, {
 // Test connection when the module is loaded
 (async () => {
   try {
-    console.log(`Connecting to database at: ${envConfig.url}`);
+  
     await sequelize.authenticate();
-    console.log('Database connection established successfully.');
+   
   } catch (error) {
     console.error('Unable to connect to the database:', error.message);
     process.exit(1); // Exit on failure

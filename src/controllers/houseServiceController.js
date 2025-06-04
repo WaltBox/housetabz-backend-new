@@ -5,9 +5,7 @@ exports.createHouseService = async (req, res) => {
   try {
     const { name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata } = req.body;
     
-    console.log('[createHouseService] Attempting to create HouseService with data:', {
-      name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata
-    });
+
 
     const houseService = await HouseService.create({
       name,
@@ -24,8 +22,7 @@ exports.createHouseService = async (req, res) => {
       metadata
     });
     
-    console.log('[createHouseService] HouseService created successfully with ID:', houseService.id);
-    
+
     res.status(201).json({
       message: 'HouseService created successfully',
       houseService,
@@ -145,8 +142,7 @@ exports.updateHouseService = async (req, res) => {
       return res.status(404).json({ message: 'HouseService not found' });
     }
     
-    console.log('[updateHouseService] Updating HouseService with ID:', id, 'with data:', { name, status, type, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, metadata });
-    
+ 
     // Update the fields
     await houseService.update({
       name: name || houseService.name,
@@ -160,9 +156,7 @@ exports.updateHouseService = async (req, res) => {
       designatedUserId: designatedUserId !== undefined ? designatedUserId : houseService.designatedUserId,
       metadata: metadata || houseService.metadata
     });
-    
-    console.log('[updateHouseService] HouseService updated successfully:', houseService.id);
-    
+  
     res.status(200).json({
       message: 'HouseService updated successfully',
       houseService
@@ -185,9 +179,7 @@ exports.deleteHouseService = async (req, res) => {
     }
     
     await houseService.destroy();
-    
-    console.log('[deleteHouseService] HouseService deleted successfully with ID:', id);
-    
+
     res.status(200).json({ message: 'HouseService deleted successfully' });
   } catch (error) {
     console.error('Error deleting HouseService:', error);
@@ -218,7 +210,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
     });
     
     if (existingService) {
-      console.log(`HouseService already exists for bundle ${serviceRequestBundleId} with ID:`, existingService.id);
+     
       return existingService;
     }
     
@@ -252,7 +244,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
         houseServiceData.createDay = createDay;
         houseServiceData.amount = bundle.takeOverRequest.monthlyAmount;
         
-        console.log(`[createFromServiceRequestBundle] Fixed service with dueDay: ${dueDay}, calculated createDay: ${createDay}`);
+      
       } else {
         // For variable services: Calculate reminderDay (approximately 1 week before dueDay)
         let reminderDay = dueDay - 7;
@@ -260,7 +252,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
         
         houseServiceData.reminderDay = reminderDay;
         
-        console.log(`[createFromServiceRequestBundle] Variable service with dueDay: ${dueDay}, calculated reminderDay: ${reminderDay}`);
+
       }
     } else if (bundle.type === 'marketplace_onetime' && bundle.stagedRequest) {
       houseServiceData = {
@@ -283,21 +275,21 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
     if (bundle.metadata && typeof bundle.metadata === 'object') {
       if (bundle.type === 'fixed_recurring' && bundle.metadata.createDay && !houseServiceData.createDay) {
         houseServiceData.createDay = Number(bundle.metadata.createDay);
-        console.log(`[createFromServiceRequestBundle] Using createDay from metadata: ${houseServiceData.createDay}`);
+
       }
       
       if (bundle.type === 'variable_recurring' && bundle.metadata.reminderDay && !houseServiceData.reminderDay) {
         houseServiceData.reminderDay = Number(bundle.metadata.reminderDay);
-        console.log(`[createFromServiceRequestBundle] Using reminderDay from metadata: ${houseServiceData.reminderDay}`);
+
       }
     }
     
-    console.log('[createFromServiceRequestBundle] Final HouseService data:', JSON.stringify(houseServiceData, null, 2));
+
     
     // Create the HouseService
     const houseService = await HouseService.create(houseServiceData);
     
-    console.log(`[createFromServiceRequestBundle] HouseService created successfully for bundle ${serviceRequestBundleId} with ID:`, houseService.id);
+
     return houseService;
   } catch (error) {
     console.error('Error creating HouseService from ServiceRequestBundle:', error);

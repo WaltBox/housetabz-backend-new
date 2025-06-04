@@ -17,6 +17,10 @@ const { apiLimiter: limiter, blockPaths } = require('./middleware/security/rateL
 const { sequelize } = require('./models'); // Import Sequelize instance
 const { startUrgentMessageSchedulers } = require('./utils/urgentMessageScheduler');
 const { startBillSchedulers } = require('./utils/billScheduler');
+const { startLatePaymentScheduler } = require('./utils/latePaymentScheduler');
+const { startHouseRiskScheduler } = require('./utils/houseRiskScheduler');
+
+
 // const { authenticateUser } = require('./middleware/auth/userAuth');
 // const { authenticatePartner } = require('./middleware/auth/partnerAuth');
 // const { authenticateWebhook } = require('./middleware/auth/webhookAuth');
@@ -35,6 +39,7 @@ const waitListRoutes = require('./routes/waitListRoutes');
 const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const referrerRoutes = require('./routes/referrerRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const confirmRequestRoutes = require('./routes/confirm-request');
@@ -59,19 +64,20 @@ const app = express();
 const corsOptions = {
   origin: [
     'http://localhost:3000',
+    'http://localhost:3001',
     'https://www.housetabz.com',
     'https://housetabz.com',
     'com.housetabz.mobile://',
-    'http://localhost:3001',
     'http://localhost:8080',
     'https://ad24-2605-a601-a0f0-dd00-550d-8071-2819-dd8f.ngrok-free.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
-    'x-api-key',           // ✅ API key (safe to expose)
-    'housetabz-timestamp', // ✅ For HMAC signatures
-    'housetabz-signature', // ✅ HMAC signature (not the raw secret)
+    'x-api-key',      
+    'x-housetabz-service-key',      
+    'housetabz-timestamp', 
+    'housetabz-signature',
     'Origin', 
     'Accept',
     'Authorization',
@@ -79,6 +85,12 @@ const corsOptions = {
   ],
   credentials: true
 };
+
+// Apply CORS first, before any other middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
@@ -90,8 +102,18 @@ Allow: /health
 Allow: /`);
 });
 
-app.use(botFilter);
-app.use(cors(corsOptions));
+// Root route
+app.get('/', (req, res) => {
+  res.json({ message: 'Welcome to HouseTabz Backend!' });
+});
+
+// Apply bot filter but skip for OPTIONS requests
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+  botFilter(req, res, next);
+});
 
 // Special handling for Stripe webhook endpoint
 app.use((req, res, next) => {
@@ -105,9 +127,9 @@ app.use((req, res, next) => {
 // Logging middleware
 app.use(morgan(':method :url :status :response-time ms - :remote-addr :user-agent')); 
 
-// Apply rate limiting and path blocking (except for Stripe webhooks)
+// Apply rate limiting and path blocking (except for Stripe webhooks and OPTIONS)
 app.use((req, res, next) => {
-  if (req.originalUrl === '/api/payments/webhook') {
+  if (req.method === 'OPTIONS' || req.originalUrl === '/api/payments/webhook') {
     next();
   } else {
     limiter(req, res, next);
@@ -135,6 +157,7 @@ app.use('/api', notificationRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/waitlist', waitListRoutes);
 app.use('/api/partner-forms', partnerFormRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/referral-program', referrerRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -154,24 +177,15 @@ app.use('/api/urgent-messages', urgentMessageRoutes);
 
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`, {
-    body: req.body,
-    query: req.query,
-    params: req.params
-  });
+ 
   next();
-});
-
-// Root route
-app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to HouseTabz Backend!' });
 });
 
 // Log all registered routes in development
 if (environment === 'development') {
   app._router.stack.forEach((r) => {
     if (r.route && r.route.path) {
-      console.log(`Route registered: ${r.route.path}`);
+   
     }
   });
 }
@@ -223,32 +237,36 @@ app.use((err, req, res, next) => {
 // Sync database and start the server
 (async () => {
   try {
-    console.log(`NODE_ENV is set to: ${environment}`);
-    console.log(`Connecting to database at: ${config.url}`);
+
     
     if (environment === 'development') {
-      console.log(`Using configuration: ${JSON.stringify(config, null, 2)}`);
+    
     }
 
     await sequelize.authenticate();
-    console.log('Database connection established successfully!');
+    
 
     await sequelize.sync({ alter: true });
-    console.log('Database synced');
+  
 
     
     startBillSchedulers();
-    console.log('Bill schedulers started');
+ 
+
+    startLatePaymentScheduler();
+  
+
+    startHouseRiskScheduler();    // Weekly risk assessment
+ 
 
     startUrgentMessageSchedulers(); 
-    console.log('Urgent message schedulers started');
+  
     // Use the PORT environment variable set by Elastic Beanstalk, or fall back to config.port or 8080
     const port = process.env.PORT || config.port || 8080;
     app.listen(port, () => {
-      console.log(`Server running in ${environment} mode on port ${port}`);
-      console.log(`Swagger documentation available at: http://localhost:${port}/api-docs`);
+ 
       if (environment === 'development') {
-        console.log(`Stripe webhook endpoint: http://localhost:${port}/api/payments/webhook`);
+   
       }
     });
   } catch (error) {

@@ -68,7 +68,7 @@ module.exports = (sequelize, DataTypes) => {
    */
   HouseServiceLedger.prototype.addContribution = async function(userId, amount, chargeId = null, transaction = null, skipFundedIncrement = false) {
     try {
-      console.log(`Adding contribution: User ${userId} paid ${amount} for charge ${chargeId} to ledger ${this.id}`);
+
   
       const metadata = this.metadata || {};
       const fundedUsers = metadata.fundedUsers || [];
@@ -106,7 +106,7 @@ module.exports = (sequelize, DataTypes) => {
   
       await this.save({ transaction });
   
-      console.log(`Successfully updated ledger ${this.id} with contribution from user ${userId}`);
+      
       return true;
     } catch (error) {
       console.error(`Error adding contribution to ledger ${this.id}:`, error);
