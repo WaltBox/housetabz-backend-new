@@ -88,14 +88,14 @@ async function fixHouseBalances() {
     }
     
     // Verify the fixes
-    console.log('\n=== CORRECTED BALANCES ===');
+  
     const correctedBalances = await HouseFinance.findAll({
       where: { houseId: [4, 5] },
       order: [['houseId', 'ASC']]
     });
     
     correctedBalances.forEach(hf => {
-      console.log(`House ${hf.houseId}: Balance = ${hf.balance}, Ledger = ${hf.ledger}`);
+    
     });
     
     // Show all house balances for reference

@@ -4,7 +4,7 @@ const { sequelize, Bill, HouseServiceLedger, Charge, HouseService } = require('.
 (async () => {
   const transaction = await sequelize.transaction();
   try {
-    console.log('🔁 Starting ledger backfill...');
+
 
     const bills = await Bill.findAll({
       include: [
@@ -43,7 +43,6 @@ const { sequelize, Bill, HouseServiceLedger, Charge, HouseService } = require('.
     }
 
     await transaction.commit();
-    console.log('✅ Ledger backfill completed successfully');
   } catch (err) {
     await transaction.rollback();
     console.error('❌ Ledger backfill failed:', err);

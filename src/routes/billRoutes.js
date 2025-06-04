@@ -4,10 +4,9 @@ const router = express.Router();
 const billController = require('../controllers/billController');
 const {authenticateSystem} = require('../middleware/auth/systemAuth');
 const { authenticateUser } = require('../middleware/auth/userAuth');
-const { authenticateAdmin } = require('../middleware/auth/adminAuth'); // 👈 ADD THIS
 const { catchAsync } = require('../middleware/errorHandler');
 
-// Updated middleware to allow system, user, OR admin authentication
+// Middleware to allow either system or user authentication (no admin)
 const authenticateEither = (req, res, next) => {
   // Check for system auth first
   const systemKey = req.headers['x-housetabz-service-key'];
@@ -16,7 +15,7 @@ const authenticateEither = (req, res, next) => {
     return next();
   }
 
-  // Check for admin or user token
+  // If no system key, require user authentication
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ 
@@ -25,29 +24,9 @@ const authenticateEither = (req, res, next) => {
     });
   }
 
-  // Try admin auth first, then fall back to user auth
-  authenticateAdmin(req, res, (adminErr) => {
-    if (!adminErr) {
-      // Admin auth succeeded
-      return next();
-    }
-    
-    // Admin auth failed, try user auth
-    authenticateUser(req, res, (userErr) => {
-      if (userErr) {
-        // Both admin and user auth failed
-        return res.status(401).json({ 
-          error: 'Authentication required',
-          message: 'Valid user, admin token, or system key required' 
-        });
-      }
-      // User auth succeeded
-      next();
-    });
-  });
+  // Use user authentication
+  authenticateUser(req, res, next);
 };
-
-// Your existing Swagger documentation stays the same...
 
 /**
  * @swagger
@@ -97,19 +76,18 @@ const authenticateEither = (req, res, next) => {
  *           example: "pending"
  */
 
-// All your existing routes stay exactly the same, they'll just work with admin auth now:
-
+// System-only routes
 router.post('/:houseId/bills', authenticateSystem, catchAsync(billController.createBill));
+router.post('/:houseId/generate-fixed-bills', authenticateSystem, catchAsync(billController.generateFixedBills));
+router.post('/generate-variable-reminders', authenticateSystem, catchAsync(billController.generateVariableReminders));
 
-// 👈 These routes now support admin auth automatically through the updated authenticateEither
+// Routes that support both user and admin access
 router.get('/:houseId/bills', authenticateEither, catchAsync(billController.getBillsForHouse));
 router.get('/:houseId/paid-bills', authenticateEither, catchAsync(billController.getPaidBillsForHouse));
 router.get('/:houseId/bills/:billId', authenticateEither, catchAsync(billController.getBillForHouse));
 
-router.post('/:houseId/generate-fixed-bills', authenticateSystem, catchAsync(billController.generateFixedBills));
+// User-only routes
 router.get('/user/variable-services', authenticateUser, catchAsync(billController.getUserVariableServices));
 router.post('/services/:serviceId/submit-bill', authenticateUser, catchAsync(billController.submitVariableBillAmount));
-router.post('/generate-variable-reminders', authenticateSystem, catchAsync(billController.generateVariableReminders));
-
 
 module.exports = router;
