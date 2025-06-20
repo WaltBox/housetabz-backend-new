@@ -33,6 +33,166 @@ exports.createHouseService = async (req, res) => {
   }
 };
 
+// In houseServiceController.js - add this new method
+// Fixed version of the getHouseServicesWithLedgersAndSummaries method
+// Enhanced backend controller with house member contribution tracking
+exports.getHouseServicesWithLedgersAndSummaries = async (req, res) => {
+  try {
+    const { houseId } = req.params;
+    
+    // Check if house exists
+    const house = await House.findByPk(houseId);
+    if (!house) {
+      return res.status(404).json({ message: 'House not found' });
+    }
+    
+    // Get all house members for contribution tracking
+    const houseMembers = await User.findAll({
+      where: { houseId },
+      attributes: ['id', 'username', 'email'],
+      order: [['username', 'ASC']]
+    });
+    
+ 
+    
+    // Get all services with their ledgers
+    const houseServices = await HouseService.findAll({
+      where: { houseId },
+      include: [
+        {
+          model: User,
+          as: 'designatedUser',
+          attributes: ['id', 'username', 'email']
+        },
+        {
+          model: require('../models').HouseServiceLedger,
+          as: 'ledgers',
+          where: { status: 'active' },
+          required: false,
+          attributes: ['id', 'fundingRequired', 'funded', 'status', 'metadata', 'createdAt']
+        }
+      ],
+      order: [
+        ['createdAt', 'DESC'],
+        [{ model: require('../models').HouseServiceLedger, as: 'ledgers' }, 'createdAt', 'DESC']
+      ]
+    });
+    
+    // Format the response to include calculated fields and contribution details
+    const servicesWithData = houseServices.map(service => {
+      const activeLedger = service.ledgers?.[0];
+      
+      let percentFunded = 0;
+      let fundingRequired = 0;
+      let funded = 0;
+      let contributorDetails = [];
+      let nonContributors = [];
+      
+      if (activeLedger) {
+        fundingRequired = Number(activeLedger.fundingRequired) || 0;
+        funded = Number(activeLedger.funded) || 0;
+        
+        // Create a map of user contributions from metadata
+        const contributionMap = new Map();
+        if (activeLedger.metadata?.fundedUsers?.length > 0) {
+          activeLedger.metadata.fundedUsers.forEach(fundedUser => {
+            contributionMap.set(fundedUser.userId, {
+              userId: fundedUser.userId,
+              amount: Number(fundedUser.amount) || 0,
+              timestamp: fundedUser.timestamp,
+              lastUpdated: fundedUser.lastUpdated,
+              charges: fundedUser.charges || []
+            });
+          });
+        }
+        
+      
+        
+        // Build detailed contributor and non-contributor lists
+        houseMembers.forEach(member => {
+          const contribution = contributionMap.get(member.id);
+          
+          if (contribution) {
+            // Member has contributed
+            contributorDetails.push({
+              userId: member.id,
+              username: member.username,
+              email: member.email,
+              amount: contribution.amount,
+              timestamp: contribution.timestamp,
+              lastUpdated: contribution.lastUpdated,
+              percentOfTotal: fundingRequired > 0 
+                ? Math.round((contribution.amount / fundingRequired) * 100) 
+                : 0
+            });
+         
+          } else {
+            // Member hasn't contributed yet
+            nonContributors.push({
+              userId: member.id,
+              username: member.username,
+              email: member.email,
+              expectedAmount: fundingRequired > 0 
+                ? Math.round(fundingRequired / houseMembers.length * 100) / 100 
+                : 0
+            });
+        
+          }
+        });
+        
+        // Calculate percentage
+        if (fundingRequired > 0) {
+          percentFunded = Math.round((funded / fundingRequired) * 100);
+        }
+      } else {
+        // No active ledger - all members are non-contributors
+        fundingRequired = Number(service.amount) || 0;
+        funded = 0;
+        percentFunded = 0;
+        
+        nonContributors = houseMembers.map(member => ({
+          userId: member.id,
+          username: member.username,
+          email: member.email,
+          expectedAmount: fundingRequired > 0 
+            ? Math.round(fundingRequired / houseMembers.length * 100) / 100 
+            : 0
+        }));
+      }
+      
+      // Sort contributors by contribution amount (highest first)
+      contributorDetails.sort((a, b) => b.amount - a.amount);
+      
+      return {
+        ...service.toJSON(),
+        calculatedData: {
+          percentFunded: Math.min(100, percentFunded),
+          fundingRequired,
+          funded,
+          remainingAmount: Math.max(0, fundingRequired - funded),
+          contributorCount: contributorDetails.length,
+          totalHouseMembers: houseMembers.length,
+          contributorDetails, // Who has contributed and how much
+          nonContributors,    // Who hasn't contributed yet
+          isFullyFunded: percentFunded >= 100,
+          averageContribution: contributorDetails.length > 0 
+            ? Math.round((funded / contributorDetails.length) * 100) / 100 
+            : 0
+        }
+      };
+    });
+    
+    res.status(200).json({
+      houseId,
+      totalHouseMembers: houseMembers.length,
+      houseServices: servicesWithData
+    });
+  } catch (error) {
+    console.error('Error fetching house services with data:', error);
+    res.status(500).json({ message: 'Failed to fetch house services', error: error.message });
+  }
+};
+
 // Get HouseServices by House ID
 exports.getHouseServicesByHouseId = async (req, res) => {
   try {

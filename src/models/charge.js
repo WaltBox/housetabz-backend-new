@@ -73,6 +73,7 @@ module.exports = (sequelize, DataTypes) => {
   Charge.associate = (models) => {
     Charge.belongsTo(models.User, {
       foreignKey: 'userId',
+      as: 'User',
       onUpdate: 'CASCADE',
       onDelete: 'NO ACTION'
     });

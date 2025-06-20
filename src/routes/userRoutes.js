@@ -38,7 +38,7 @@ router.use(authenticateUser);
  *         description: User not found
  */
 router.get('/:id/payments', catchAsync(paymentController.getUserPayments));
-
+router.get('/:id/dashboard', catchAsync(userController.getDashboardData));
 // Existing user routes:
 router.get('/:id', catchAsync(userController.getUser));
 router.get('/', catchAsync(userController.getAllUsers));
@@ -58,5 +58,6 @@ router.put('/:id', catchAsync(userController.updateUser));
 router.delete('/:id', catchAsync(userController.deleteUser));
 router.put('/:id/house', catchAsync(userController.updateUserHouse));
 router.put('/:id/join-house', catchAsync(userController.joinHouse));
+// In userRoutes.js
 
 module.exports = router;

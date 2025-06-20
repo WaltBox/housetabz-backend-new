@@ -273,16 +273,17 @@ const paymentController = {
             // Get the bill for this charge
             const bill = await Bill.findByPk(charge.billId, { transaction });
             if (!bill) {
+              console.log(`No bill found for charge ${charge.id}`);
               continue;
             }
-
+        
             // FIXED: Directly query for the HouseService using the bill's houseService_id
             const houseService = await sequelize.models.HouseService.findByPk(bill.houseService_id, { transaction });
             if (!houseService) {
-
+              console.log(`No house service found for bill ${bill.id}`);
               continue;
             }
-
+        
             // FIXED: Directly query for the active ledger
             const ledger = await sequelize.models.HouseServiceLedger.findOne({
               where: {
@@ -294,19 +295,54 @@ const paymentController = {
             });
             
             if (!ledger) {
-             
+              console.log(`No active ledger found for house service ${houseService.id}`);
               continue;
             }
-
-            // Fund ledger with the charge amount
-            await ledger.increment('funded', {
-              by: Number(charge.amount),
-              transaction
-            });
-            
-            // Track user contribution in metadata, but skip updating funded again
-            await ledger.addContribution(charge.userId, charge.amount, charge.id, transaction, true);
-          
+        
+            console.log(`Updating ledger ${ledger.id} for charge ${charge.id}, user ${charge.userId}, amount ${charge.amount}`);
+        
+            // Get current metadata
+            const currentMetadata = ledger.metadata || {};
+            const fundedUsers = currentMetadata.fundedUsers || [];
+        
+            // Check if user already has funding recorded
+            const existingFundingIndex = fundedUsers.findIndex(fu => 
+              String(fu.userId) === String(charge.userId)
+            );
+        
+            if (existingFundingIndex >= 0) {
+              // Update existing funding
+              fundedUsers[existingFundingIndex].amount = Number(fundedUsers[existingFundingIndex].amount) + Number(charge.amount);
+              fundedUsers[existingFundingIndex].lastUpdated = new Date();
+              fundedUsers[existingFundingIndex].charges = fundedUsers[existingFundingIndex].charges || [];
+              fundedUsers[existingFundingIndex].charges.push(charge.id);
+              console.log(`Updated existing funding for user ${charge.userId}: total now ${fundedUsers[existingFundingIndex].amount}`);
+            } else {
+              // Add new funding
+              fundedUsers.push({
+                userId: Number(charge.userId),
+                amount: Number(charge.amount),
+                timestamp: new Date(),
+                lastUpdated: new Date(),
+                charges: [charge.id]
+              });
+              console.log(`Added new funding for user ${charge.userId}: ${charge.amount}`);
+            }
+        
+            // Calculate total funded amount from metadata
+            const totalFundedFromMetadata = fundedUsers.reduce((sum, fu) => sum + Number(fu.amount), 0);
+        
+            // Update the ledger with both metadata and funded amount
+            await ledger.update({
+              metadata: {
+                ...currentMetadata,
+                fundedUsers
+              },
+              funded: totalFundedFromMetadata
+            }, { transaction });
+        
+            console.log(`Ledger ${ledger.id} updated: funded=${totalFundedFromMetadata}, contributors=${fundedUsers.length}`);
+                
           } catch (error) {
             console.error(`Error updating ledger for charge ${charge.id}:`, error);
             // Continue processing other charges even if one fails

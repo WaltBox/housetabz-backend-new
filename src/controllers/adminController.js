@@ -196,6 +196,7 @@ const adminController = {
             attributes: ['id', 'amount', 'status', 'userId'],
             include: [{
               model: User,
+              as: 'User', // ← Add this line with the correct alias
               attributes: ['id', 'username']
             }],
             required: false

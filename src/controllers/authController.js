@@ -69,6 +69,72 @@ const authController = {
     }
   },
 
+  // FIXED: Changed from arrow function to regular function
+  async verifyCredentials(req, res) {
+    try {
+      const { email, password } = req.body;
+  
+      // Validate input
+      if (!email || !password) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email and password are required'
+        });
+      }
+  
+      // Find user by email
+      const user = await User.findOne({ 
+        where: { email },
+        include: [
+          {
+            model: House,
+            as: 'house',
+            attributes: ['id', 'name', 'city', 'state', 'zip_code', 'house_code', 'creator_id'],
+            required: false
+          }
+        ]
+      });
+  
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+  
+      // FIXED: Use comparePassword method (same as login)
+      const isPasswordValid = await user.comparePassword(password);
+      
+      if (!isPasswordValid) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+  
+      // Return user data without creating a session/token
+      res.json({
+        success: true,
+        message: 'Credentials verified',
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          houseId: user.houseId,
+          house: user.house
+        }
+      });
+  
+    } catch (error) {
+      console.error('Error verifying credentials:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error during credential verification'
+      });
+    }
+  },
+
   async register(req, res) {
     try {
       const { username, email, password, phoneNumber } = req.body;

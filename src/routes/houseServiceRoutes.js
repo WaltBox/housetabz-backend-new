@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const houseServiceController = require('../controllers/houseServiceController');
 
+router.get('/house/:houseId/with-data', houseServiceController.getHouseServicesWithLedgersAndSummaries);
+
 router.get('/house/:houseId', houseServiceController.getHouseServicesByHouseId);
 
 /**

@@ -16,7 +16,7 @@ async function createTestBillSubmission() {
 
     // Create the BillSubmission
     const billSubmission = await BillSubmission.create({
-      houseServiceId: 16,
+      houseServiceId: 28,
       userId: 5,
       status: 'pending',
       dueDate,

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const houseController = require('../controllers/houseController');
-
+const { catchAsync } = require('../middleware/errorHandler');
 /**
  * @swagger
  * tags:
@@ -81,6 +81,8 @@ router.post('/', houseController.createHouse);
  *                     example: 1
  */
 router.get('/', houseController.getAllHouses);
+
+router.get('/:id/tabs-data', catchAsync(houseController.getHouseWithTabsData));
 
 /**
  * @swagger

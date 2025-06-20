@@ -61,6 +61,7 @@ async function findOverdueCharges() {
       },
       {
         model: User,
+        as: 'User',
         attributes: ['id', 'username', 'email']
       }
     ]
@@ -480,26 +481,63 @@ async function evolveMessage(existingMessage, newMessageData) {
     existingMessage.type !== newMessageData.type ||
     existingMessage.title !== newMessageData.title ||
     existingMessage.body !== newMessageData.body ||
-    existingMessage.metadata !== newMessageData.metadata;
+    existingMessage.metadata !== newMessageData.metadata ||
+    existingMessage.chargeId !== newMessageData.chargeId ||
+    existingMessage.billId !== newMessageData.billId;
   
   if (needsUpdate) {
     const wasTypeChange = existingMessage.type !== newMessageData.type;
+    const wasChargeChange = existingMessage.chargeId !== newMessageData.chargeId;
     
-    await existingMessage.update({
-      type: newMessageData.type,
-      title: newMessageData.title,
-      body: newMessageData.body,
-      metadata: newMessageData.metadata,
-      billId: newMessageData.billId,
-      chargeId: newMessageData.chargeId,
-      isRead: false, // Mark as unread since it changed
-      isResolved: false
-    });
-    
-    if (wasTypeChange) {
-      console.log(`Message ${existingMessage.id} transitioned from ${existingMessage.type} to ${newMessageData.type}`);
-    } else {
-      console.log(`Message ${existingMessage.id} updated with new content`);
+    try {
+      // If the type or charge is changing, we need to be careful about the unique constraint
+      if (wasTypeChange || wasChargeChange) {
+        // Check if updating would violate the unique constraint
+        const conflictingMessage = await UrgentMessage.findOne({
+          where: {
+            chargeId: newMessageData.chargeId,
+            userId: newMessageData.userId,
+            type: newMessageData.type,
+            id: { [Op.ne]: existingMessage.id }, // Exclude the current message
+            isResolved: false
+          }
+        });
+        
+        if (conflictingMessage) {
+          // If there's a conflict, resolve the conflicting message first
+          console.log(`Resolving conflicting message ${conflictingMessage.id} before updating message ${existingMessage.id}`);
+          await resolveMessage(conflictingMessage, 'Replaced by updated message');
+        }
+      }
+      
+      await existingMessage.update({
+        type: newMessageData.type,
+        title: newMessageData.title,
+        body: newMessageData.body,
+        metadata: newMessageData.metadata,
+        billId: newMessageData.billId,
+        chargeId: newMessageData.chargeId,
+        isRead: false, // Mark as unread since it changed
+        isResolved: false
+      });
+      
+      if (wasTypeChange) {
+        console.log(`Message ${existingMessage.id} transitioned from ${existingMessage.type} to ${newMessageData.type}`);
+      } else {
+        console.log(`Message ${existingMessage.id} updated with new content`);
+      }
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        console.log(`Unique constraint conflict for message ${existingMessage.id}, resolving existing and creating new`);
+        
+        // Resolve the existing message
+        await resolveMessage(existingMessage, 'Replaced due to constraint conflict');
+        
+        // Create a new message with the new data
+        await createMessage(newMessageData);
+      } else {
+        throw error;
+      }
     }
   } else {
     console.log(`Message ${existingMessage.id} - no changes needed`);
@@ -508,10 +546,69 @@ async function evolveMessage(existingMessage, newMessageData) {
 
 async function createMessage(messageData) {
   try {
+    // First check if a message with the same charge_id, user_id, and type already exists
+    const existingMessage = await UrgentMessage.findOne({
+      where: {
+        chargeId: messageData.chargeId,
+        userId: messageData.userId,
+        type: messageData.type,
+        isResolved: false
+      }
+    });
+
+    if (existingMessage) {
+      console.log(`Message already exists for charge ${messageData.chargeId}, user ${messageData.userId}, type ${messageData.type}. Updating instead.`);
+      
+      // Update the existing message instead of creating a new one
+      await existingMessage.update({
+        title: messageData.title,
+        body: messageData.body,
+        metadata: messageData.metadata,
+        billId: messageData.billId,
+        isRead: false, // Mark as unread since it's updated
+        isResolved: false
+      });
+      
+      console.log(`Updated existing message ${existingMessage.id} for user ${messageData.userId}`);
+      return existingMessage;
+    }
+
+    // If no existing message, create a new one
     const message = await UrgentMessage.create(messageData);
     console.log(`Created new ${messageData.type} message (ID: ${message.id}) for user ${messageData.userId}`);
     return message;
   } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      console.log(`Unique constraint error for user ${messageData.userId}, type ${messageData.type}. Attempting to find and update existing message.`);
+      
+      // Try to find the existing message and update it
+      try {
+        const existingMessage = await UrgentMessage.findOne({
+          where: {
+            chargeId: messageData.chargeId,
+            userId: messageData.userId,
+            type: messageData.type
+          }
+        });
+
+        if (existingMessage) {
+          await existingMessage.update({
+            title: messageData.title,
+            body: messageData.body,
+            metadata: messageData.metadata,
+            billId: messageData.billId,
+            isRead: false,
+            isResolved: false
+          });
+          
+          console.log(`Updated existing conflicting message ${existingMessage.id} for user ${messageData.userId}`);
+          return existingMessage;
+        }
+      } catch (updateError) {
+        console.error(`Failed to update existing message for user ${messageData.userId}:`, updateError);
+      }
+    }
+    
     console.error(`Error creating message for user ${messageData.userId}:`, error);
     return null;
   }

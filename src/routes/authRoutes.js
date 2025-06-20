@@ -10,6 +10,7 @@ router.use(['/login', '/register'], authLimiter);
 
 // Public routes
 router.post('/login', authController.login);
+router.post('/verify-credentials', authController.verifyCredentials);
 router.post('/register', authController.register);
 router.post('/refresh', authController.refreshToken);
 

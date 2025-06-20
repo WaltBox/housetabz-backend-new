@@ -72,7 +72,7 @@ module.exports = (sequelize, DataTypes) => {
   
     UrgentMessage.associate = (models) => {
       UrgentMessage.belongsTo(models.House, { foreignKey: 'house_id', as: 'house' });
-      UrgentMessage.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+      UrgentMessage.belongsTo(models.User, { foreignKey: 'user_id', as: 'User' });
       UrgentMessage.belongsTo(models.Bill, { foreignKey: 'bill_id', as: 'bill' });
       UrgentMessage.belongsTo(models.Charge, { foreignKey: 'charge_id', as: 'charge' });
     };
