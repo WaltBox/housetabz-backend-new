@@ -40,6 +40,8 @@ const partnerFormRoutes = require('./routes/partnerFormRoutes');
 const contactRoutes = require('./routes/contactRoutes');
 const partnerRoutes = require('./routes/partnerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const adminUserRoutes = require('./routes/adminUserRoutes');
+const adminHouseRoutes = require('./routes/adminHouseRoutes');
 const referrerRoutes = require('./routes/referrerRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const confirmRequestRoutes = require('./routes/confirm-request');
@@ -54,6 +56,7 @@ const billSubmissionRoutes = require('./routes/billSubmissionRoutes');
 const urgentMessageRoutes = require('./routes/urgentMessageRoutes');  
 const HouseServiceLedgerRoutes = require('./routes/houseServiceLedgerRoutes')
 const reminderRoutes = require('./routes/reminderRoutes')
+const transactionRoutes = require('./routes/transactionRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const botFilter = require('./middleware/security/botFilter');
 
@@ -71,7 +74,7 @@ const corsOptions = {
     'http://localhost:8080',
     'https://ad24-2605-a601-a0f0-dd00-550d-8071-2819-dd8f.ngrok-free.app'
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
     'Content-Type', 
     'x-api-key',      
@@ -150,7 +153,8 @@ app.use('/api/houses', houseRoutes);
 app.use('/api/partners', partnerRoutes);
 app.use('/api/service-request-bundles', serviceRequestBundleRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/houses', billRoutes);
+app.use('/api/bills', billRoutes);
+
 app.use('/api/users', chargeRoutes);
 app.use('/api/houseServices', houseServiceRoutes);
 app.use('/api', notificationRoutes);
@@ -172,7 +176,10 @@ app.use('/api', houseFinanceRoutes);
 app.use('/api', billSubmissionRoutes);
 app.use('/api', feedbackRoutes );
 app.use('/api', reminderRoutes);
-app.use('/api', HouseServiceLedgerRoutes)
+app.use('/api', HouseServiceLedgerRoutes);
+app.use('/api/admin/transactions', transactionRoutes);
+app.use('/api/admin/users', adminUserRoutes);          // User management
+app.use('/api/admin/houses', adminHouseRoutes);
 app.use('/api/urgent-messages', urgentMessageRoutes);
 
 // For debugging, add this middleware before your routes

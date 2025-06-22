@@ -4,6 +4,7 @@ const { Admin, User, House, Bill, Charge, Transaction, sequelize } = require('..
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { canAdvanceCharge } = require('../services/advanceService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -127,64 +128,31 @@ const adminController = {
     }
   },
 
-  // Get all users (admin only)
-  async getAllUsers(req, res) {
-    try {
-      const users = await User.findAll({
-        attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId', 'isAdmin', 'createdAt'],
-        include: [{
-          model: House,
-          as: 'house',
-          attributes: ['id', 'name'],
-          required: false
-        }],
-        order: [['createdAt', 'DESC']],
-        limit: 100 // Reasonable limit
-      });
-
-      return res.status(200).json({ users });
-
-    } catch (error) {
-      console.error('Error fetching all users:', error);
-      return res.status(500).json({ error: 'Failed to fetch users' });
-    }
-  },
-
-  // Get all houses (admin only)
-  async getAllHouses(req, res) {
-    try {
-      const houses = await House.findAll({
-        attributes: ['id', 'name', 'createdAt'],
-        include: [{
-          model: User,
-          attributes: ['id', 'username', 'email'],
-          required: false
-        }],
-        order: [['createdAt', 'DESC']],
-        limit: 100 // Reasonable limit
-      });
-
-      return res.status(200).json({ houses });
-
-    } catch (error) {
-      console.error('Error fetching all houses:', error);
-      return res.status(500).json({ error: 'Failed to fetch houses' });
-    }
-  },
-
-  // Get all bills (admin only)
+  // Get all bills (admin only) - FIXED ADVANCE LOGIC
   async getAllBills(req, res) {
     try {
       const { page = 1, limit = 50, status, houseId } = req.query;
       const offset = (page - 1) * limit;
-
+  
       const whereClause = {};
       if (status) whereClause.status = status;
       if (houseId) whereClause.houseId = houseId;
-
+  
       const bills = await Bill.findAndCountAll({
         where: whereClause,
-        attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt', 'houseId'],
+        attributes: [
+          'id',
+          'name',
+          'amount',
+          'status',
+          'billType',
+          'dueDate',
+          'createdAt',
+          'houseId',
+          'providerPaid',
+          'providerPaidAt',
+          'frontedAmount'
+        ],
         include: [
           {
             model: House,
@@ -193,12 +161,7 @@ const adminController = {
           },
           {
             model: Charge,
-            attributes: ['id', 'amount', 'status', 'userId'],
-            include: [{
-              model: User,
-              as: 'User', // ← Add this line with the correct alias
-              attributes: ['id', 'username']
-            }],
+            attributes: ['id', 'amount', 'status', 'advanced'],
             required: false
           }
         ],
@@ -206,7 +169,35 @@ const adminController = {
         limit: parseInt(limit),
         offset: parseInt(offset)
       });
+  
+      // Add advance logic per bill
+      for (const bill of bills.rows) {
+        if (bill.houseId && (bill.status === 'pending' || bill.status === 'partial_paid')) {
+          const unpaidAmount = bill.Charges?.reduce((sum, charge) => {
+            return charge.status === 'unpaid' ? sum + parseFloat(charge.amount) : sum;
+          }, 0) ?? 0;
 
+          const advance = await canAdvanceCharge(bill.houseId, unpaidAmount);
+          
+          // Calculate what's already been advanced
+          const alreadyAdvanced = parseFloat(bill.frontedAmount) || 0;
+          
+          // Calculate how much more advancement is needed
+          const additionalAdvancementNeeded = Math.max(0, unpaidAmount - alreadyAdvanced);
+
+          bill.setDataValue('advanceStatus', {
+            houseAdvanceAllowance: advance.allowance,
+            unpaidAmount: unpaidAmount,
+            alreadyAdvanced: alreadyAdvanced,
+            additionalAdvancementNeeded: additionalAdvancementNeeded,
+            canAdvanceAdditional: additionalAdvancementNeeded > 0 && additionalAdvancementNeeded <= advance.remaining
+          });
+        } else {
+          // Set null for non-pending bills
+          bill.setDataValue('advanceStatus', null);
+        }
+      }
+  
       return res.status(200).json({
         bills: bills.rows,
         pagination: {
@@ -216,10 +207,124 @@ const adminController = {
           totalPages: Math.ceil(bills.count / limit)
         }
       });
-
+  
     } catch (error) {
       console.error('Error fetching all bills:', error);
       return res.status(500).json({ error: 'Failed to fetch bills' });
+    }
+  },
+
+  // Get detailed bill information (admin only) - FIXED ADVANCE LOGIC
+  async getBillDetails(req, res) {
+    try {
+      const { billId } = req.params;
+
+      const bill = await Bill.findByPk(billId, {
+        attributes: [
+          'id', 'name', 'amount', 'baseAmount', 'serviceFeeTotal', 
+          'status', 'billType', 'dueDate', 'createdAt', 
+          'providerPaid', 'providerPaidAt', 'frontedAmount', 'metadata', 'houseId'
+        ],
+        include: [
+          {
+            model: House,
+            attributes: ['id', 'name'],
+            required: false
+          },
+          {
+            model: Charge,
+            attributes: ['id', 'amount', 'baseAmount', 'serviceFee', 'status', 'name', 'userId', 'dueDate', 'metadata', 'advanced', 'advancedAt', 'repaidAt'],
+            include: [
+              {
+                model: User,
+                as: 'User',
+                attributes: ['id', 'username', 'email', 'phoneNumber']
+              },
+            ],
+            required: false
+          },
+          {
+            model: sequelize.models.HouseService,
+            as: 'houseServiceModel', 
+            attributes: [
+              'id', 'name', 'type', 'billingSource', 'status', 'amount',
+              'houseTabzAgreementId', 'externalAgreementId', 'partnerId',
+              'designatedUserId', 'createDay', 'dueDay', 'reminderDay',
+              'accountNumber', 'feeCategory', 'metadata'
+            ],
+            include: [
+              {
+                model: User,
+                as: 'designatedUser',
+                attributes: ['id', 'username', 'email', 'phoneNumber'],
+                required: false
+              },
+              {
+                model: sequelize.models.Partner,
+                as: 'partner',
+                attributes: ['id', 'name'],
+                required: false
+              }
+            ],
+            required: false
+          },
+          {
+            model: User,
+            as: 'creator',
+            attributes: ['id', 'username', 'email'],
+            required: false
+          }
+        ],
+      });
+
+      if (!bill) {
+        return res.status(404).json({ error: 'Bill not found' });
+      }
+
+      // CORRECTED ADVANCE CHECK
+      if (bill.houseId && (bill.status === 'pending' || bill.status === 'partial_paid')) {
+        // Calculate how much money is still needed (unpaid charges)
+        const unpaidAmount = bill.Charges?.reduce((sum, charge) => {
+          return charge.status === 'unpaid' ? sum + parseFloat(charge.amount) : sum;
+        }, 0) ?? 0;
+
+        // Calculate what's already been advanced
+        const alreadyAdvanced = parseFloat(bill.frontedAmount) || 0;
+
+        // Calculate how much more advancement is needed
+        const additionalAdvancementNeeded = Math.max(0, unpaidAmount - alreadyAdvanced);
+
+        // Get the house's advance allowance
+        const advance = await canAdvanceCharge(bill.houseId, unpaidAmount);
+        
+        console.log('DEBUG - Advance check result:', {
+          unpaidAmount,
+          alreadyAdvanced,
+          additionalAdvancementNeeded,
+          allowance: advance.allowance,
+          remaining: advance.remaining,
+          allowed: advance.allowed,
+          calculation: additionalAdvancementNeeded <= advance.remaining
+        });
+
+        bill.setDataValue('advanceStatus', {
+          isAdvanceable: advance.allowed && additionalAdvancementNeeded > 0,
+          houseAdvanceAllowance: advance.allowance,
+          unpaidAmount: unpaidAmount,
+          alreadyFronted: alreadyAdvanced, // Keep this name for backwards compatibility with frontend
+          additionalFrontingNeeded: additionalAdvancementNeeded, // Keep this name for backwards compatibility with frontend
+          canAdvanceAdditional: additionalAdvancementNeeded > 0 && additionalAdvancementNeeded <= advance.remaining,
+          reason: advance.allowed 
+            ? `House allowance: ${advance.allowance}. Unpaid: ${unpaidAmount}. Already advanced: ${alreadyAdvanced}.`
+            : `Unpaid amount (${unpaidAmount}) exceeds house advance allowance (${advance.allowance})`
+        });
+      }
+
+      return res.status(200).json(bill);
+
+    } catch (error) {
+      console.error('Error fetching bill details:', error);
+      return res.status(500).json({ error: 'Failed to fetch bill details' });
     }
   },
 
@@ -427,39 +532,6 @@ const adminController = {
     } catch (error) {
       console.error('Error fetching dashboard analytics:', error);
       return res.status(500).json({ error: 'Failed to fetch analytics' });
-    }
-  },
-
-  // Update user admin status
-  async updateUserAdminStatus(req, res) {
-    try {
-      const { userId } = req.params;
-      const { isAdmin } = req.body;
-
-      if (typeof isAdmin !== 'boolean') {
-        return res.status(400).json({ error: 'isAdmin must be a boolean value' });
-      }
-
-      const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      await user.update({ isAdmin });
-
-      return res.status(200).json({
-        message: `User ${isAdmin ? 'granted' : 'revoked'} admin privileges successfully`,
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isAdmin: user.isAdmin
-        }
-      });
-
-    } catch (error) {
-      console.error('Error updating user admin status:', error);
-      return res.status(500).json({ error: 'Failed to update user admin status' });
     }
   },
 

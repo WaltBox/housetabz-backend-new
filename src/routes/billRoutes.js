@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const billController = require('../controllers/billController');
+const { authenticateAdmin } = require('../middleware/auth/adminAuth');
 const {authenticateSystem} = require('../middleware/auth/systemAuth');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { catchAsync } = require('../middleware/errorHandler');
@@ -80,6 +81,11 @@ const authenticateEither = (req, res, next) => {
 router.post('/:houseId/bills', authenticateSystem, catchAsync(billController.createBill));
 router.post('/:houseId/generate-fixed-bills', authenticateSystem, catchAsync(billController.generateFixedBills));
 router.post('/generate-variable-reminders', authenticateSystem, catchAsync(billController.generateVariableReminders));
+router.patch(
+  '/:billId/mark-provider-paid',
+  authenticateAdmin,
+  catchAsync(billController.markProviderPaid)
+);
 
 // Routes that support both user and admin access
 router.get('/:houseId/bills', authenticateEither, catchAsync(billController.getBillsForHouse));

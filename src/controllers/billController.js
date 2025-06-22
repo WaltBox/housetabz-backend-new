@@ -11,6 +11,7 @@ const {
   sequelize 
 } = require('../models');
 const billService = require('../services/billService');
+const { canAdvanceCharge } = require('../services/advanceService'); // ← Import advance service
 const { Op } = require('sequelize');
 const { createLogger } = require('../utils/logger');
 const logger = createLogger('bill-controller');
@@ -94,11 +95,12 @@ exports.getBillsForHouse = async (req, res, next) => {
     // CORRECTED: Use houseServiceModel alias instead of houseService
     const bills = await Bill.findAll({
       where: whereCondition,
-      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
+      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt', 'providerPaid', 'providerPaidAt'],
+
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'],
+          attributes: ['id', 'amount', 'status', 'name', 'userId', 'advanced'], // ← Include advanced field
           include: [
             {
               model: User,
@@ -144,11 +146,12 @@ exports.getBillForHouse = async (req, res, next) => {
     // CORRECTED: Use houseServiceModel alias instead of houseService
     const bill = await Bill.findOne({
       where: { id: billId, houseId },
-      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
+      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt', 'providerPaid', 'providerPaidAt'],
+
       include: [
         {
           model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'],
+          attributes: ['id', 'amount', 'status', 'name', 'userId', 'advanced', 'advancedAt'], // ← Include advance fields
           include: [
             {
               model: User,
@@ -205,62 +208,6 @@ exports.getPaidBillsForHouse = async (req, res) => {
   } catch (error) {
     logger.error('Error fetching paid bills for house:', error);
     res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// Update to the getBillForHouse function
-exports.getBillForHouse = async (req, res, next) => {
-  try {
-    const { houseId, billId } = req.params;
-
-    // If this is a system request (confirmed by middleware), skip user authorization check
-    if (!req.isSystemRequest) {
-      // Only check user authorization if it's not a system request
-      if (req.user.houseId != houseId) {
-        return res.status(403).json({ error: 'Unauthorized access to house bill' });
-      }
-    }
-
-    const house = await House.findByPk(houseId);
-    if (!house) {
-      return res.status(404).json({ message: 'House not found' });
-    }
-
-    const bill = await Bill.findOne({
-      where: { id: billId, houseId },
-      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
-      include: [
-        {
-          model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'],
-          include: [
-            {
-              model: User,
-              attributes: ['id', 'username']
-            },
-          ],
-        },
-        {
-          model: HouseService,
-          as: 'houseService',
-          attributes: ['id', 'name', 'type']
-        },
-        {
-          model: User,
-          as: 'creator',
-          attributes: ['id', 'username']
-        }
-      ],
-    });
-
-    if (!bill) {
-      return res.status(404).json({ message: 'Bill not found for this house' });
-    }
-
-    res.status(200).json(bill);
-  } catch (error) {
-    logger.error('Error fetching bill for house:', error);
-    next(error);
   }
 };
 
@@ -381,6 +328,66 @@ exports.submitVariableBillAmount = async (req, res) => {
   } catch (error) {
     logger.error('Error submitting variable bill amount:', error);
     res.status(500).json({ error: 'Failed to submit variable bill amount', details: error.message });
+  }
+};
+
+/**
+ * Mark a bill as provider-paid (HouseTabz sent payment to service provider)
+ * NOW WITH ADVANCEMENT LOGIC!
+ */
+exports.markProviderPaid = async (req, res) => {
+  const { billId } = req.params;
+  console.log('[markProviderPaid] PATCH request for billId:', billId);
+
+  try {
+    const bill = await Bill.findByPk(billId, {
+      include: [{ 
+        model: Charge,
+        attributes: ['id', 'amount', 'status', 'userId', 'advanced'] 
+      }]
+    });
+
+    if (!bill) {
+      console.warn('[markProviderPaid] Bill not found');
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+
+    if (bill.providerPaid) {
+      console.warn('[markProviderPaid] Already marked providerPaid');
+      return res.status(400).json({ error: 'Provider already marked as paid' });
+    }
+
+    console.log('[markProviderPaid] Proceeding to process provider payment...');
+
+    // Start transaction and call the new processProviderPayment method
+    const transaction = await sequelize.transaction();
+    try {
+      const result = await bill.processProviderPayment(transaction);
+      await transaction.commit();
+
+      console.log(`[markProviderPaid] Bill ${bill.id} successfully processed with advancement result:`, result);
+
+      return res.status(200).json({
+        message: 'Provider payment processed successfully',
+        bill: await Bill.findByPk(billId, { // Refresh bill data
+          include: [{ 
+            model: Charge,
+            attributes: ['id', 'amount', 'status', 'userId', 'advanced', 'advancedAt'] 
+          }]
+        }),
+        advancementResult: result
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+
+  } catch (err) {
+    console.error('Error in markProviderPaid:', err);
+    res.status(500).json({ 
+      error: 'Failed to process provider payment',
+      details: err.message 
+    });
   }
 };
 
