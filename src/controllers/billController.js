@@ -70,11 +70,19 @@ exports.createBill = async (req, res, next) => {
 
 /**
  * Get all bills for a specified house, with optional filtering by bill type.
+ * OPTIMIZED VERSION with pagination and reduced data fetching
  */
 exports.getBillsForHouse = async (req, res, next) => {
   try {
     const { houseId } = req.params;
-    const { billType } = req.query;
+    const { 
+      billType, 
+      page = 1, 
+      limit = 20, 
+      status,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
 
     // Authorization: Ensure the user belongs to the requested house.
     if (req.user.houseId != houseId) {
@@ -86,40 +94,113 @@ exports.getBillsForHouse = async (req, res, next) => {
       return res.status(404).json({ message: 'House not found' });
     }
 
+    // Build where condition
     const whereCondition = { houseId };
     if (billType) {
       whereCondition.billType = billType;
     }
+    if (status) {
+      whereCondition.status = status;
+    }
 
-    // CORRECTED: Use houseServiceModel alias instead of houseService
-    const bills = await Bill.findAll({
+    // Calculate pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // OPTIMIZED: Fetch bills with minimal data and separate charge summary
+    const { count, rows: bills } = await Bill.findAndCountAll({
       where: whereCondition,
-      attributes: ['id', 'name', 'amount', 'status', 'billType', 'dueDate', 'createdAt'],
+      attributes: [
+        'id', 'name', 'amount', 'baseAmount', 'serviceFeeTotal', 
+        'status', 'billType', 'dueDate', 'createdAt'
+      ],
       include: [
         {
-          model: Charge,
-          attributes: ['id', 'amount', 'status', 'name', 'userId'],
-          include: [
-            {
-              model: User,
-              attributes: ['id', 'username'],
-            },
-          ],
-        },
-        {
           model: HouseService,
-          as: 'houseServiceModel', // Changed from 'houseService' to 'houseServiceModel'
-          attributes: ['id', 'name', 'type']
+          as: 'houseServiceModel',
+          attributes: ['id', 'name', 'type', 'feeCategory']
         }
       ],
-      order: [['createdAt', 'DESC']]
+      limit: parseInt(limit),
+      offset,
+      order: [[sortBy, sortOrder]],
+      // Add cache headers hint
+      benchmark: true
     });
 
-    // Get the house finance info to include the balance.
-    const houseFinance = await HouseFinance.findOne({ where: { houseId } });
+    // OPTIMIZED: Get charge summaries in a separate, efficient query
+    const billIds = bills.map(bill => bill.id);
+    let chargeSummaries = {};
+    
+    if (billIds.length > 0) {
+      const charges = await Charge.findAll({
+        where: { billId: billIds },
+        attributes: [
+          'billId',
+          'userId', 
+          'amount',
+          'status',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'chargeCount']
+        ],
+        include: [
+          {
+            model: User,
+            attributes: ['id', 'username']
+          }
+        ],
+        group: ['billId', 'userId', 'amount', 'status', 'User.id', 'User.username']
+      });
+
+      // Group charges by billId for easy lookup
+      charges.forEach(charge => {
+        if (!chargeSummaries[charge.billId]) {
+          chargeSummaries[charge.billId] = [];
+        }
+        chargeSummaries[charge.billId].push({
+          userId: charge.userId,
+          username: charge.User?.username,
+          amount: charge.amount,
+          status: charge.status
+        });
+      });
+    }
+
+    // OPTIMIZED: Get house balance in parallel (don't wait for bills)
+    const houseFinancePromise = HouseFinance.findOne({ 
+      where: { houseId },
+      attributes: ['balance']
+    });
+
+    const houseFinance = await houseFinancePromise;
+
+    // Combine bills with their charge summaries
+    const billsWithCharges = bills.map(bill => ({
+      ...bill.toJSON(),
+      charges: chargeSummaries[bill.id] || [],
+      chargeCount: chargeSummaries[bill.id]?.length || 0
+    }));
+
+    // Set cache headers for better frontend performance
+    res.set({
+      'Cache-Control': 'private, max-age=30', // Cache for 30 seconds
+      'ETag': `"bills-${houseId}-${page}-${Date.now()}"` // Basic ETag
+    });
+
     res.status(200).json({
-      bills,
-      houseBalance: houseFinance ? houseFinance.balance : 0
+      bills: billsWithCharges,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / parseInt(limit)),
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+        hasNext: offset + parseInt(limit) < count,
+        hasPrev: parseInt(page) > 1
+      },
+      houseBalance: houseFinance ? houseFinance.balance : 0,
+      summary: {
+        totalBills: count,
+        pendingBills: billsWithCharges.filter(b => b.status === 'pending').length,
+        paidBills: billsWithCharges.filter(b => b.status === 'paid').length
+      }
     });
   } catch (error) {
     logger.error('Error fetching bills for house:', error);

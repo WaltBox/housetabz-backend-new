@@ -50,6 +50,7 @@ const urgentMessageRoutes = require('./routes/urgentMessageRoutes');
 const HouseServiceLedgerRoutes = require('./routes/houseServiceLedgerRoutes')
 const reminderRoutes = require('./routes/reminderRoutes')
 const feedbackRoutes = require('./routes/feedbackRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 const botFilter = require('./middleware/security/botFilter');
 
 // Initialize Express app
@@ -151,6 +152,7 @@ app.use('/api', feedbackRoutes );
 app.use('/api', reminderRoutes);
 app.use('/api', HouseServiceLedgerRoutes)
 app.use('/api/urgent-messages', urgentMessageRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
