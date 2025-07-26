@@ -13,6 +13,7 @@ router.post('/login', authController.login);
 router.post('/verify-credentials', authController.verifyCredentials);
 router.post('/register', authController.register);
 router.post('/refresh', authController.refreshToken);
+router.post('/check-token', authController.checkTokenAndRefresh);
 
 // In your auth routes
 router.post('/request-reset-code', authController.requestPasswordReset);

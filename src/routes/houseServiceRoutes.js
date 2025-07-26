@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const houseServiceController = require('../controllers/houseServiceController');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { requireOnboardingForHouse } = require('../middleware/onboardingProtection');
 
-router.get('/house/:houseId/with-data', houseServiceController.getHouseServicesWithLedgersAndSummaries);
+router.get('/house/:houseId/with-data', authenticateUser, requireOnboardingForHouse, houseServiceController.getHouseServicesWithLedgersAndSummaries);
 
-router.get('/house/:houseId', houseServiceController.getHouseServicesByHouseId);
+router.get('/house/:houseId', authenticateUser, requireOnboardingForHouse, houseServiceController.getHouseServicesByHouseId);
 
 /**
  * @swagger

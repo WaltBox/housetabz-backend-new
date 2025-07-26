@@ -15,6 +15,19 @@ const sequelize = new Sequelize(envConfig.url, {
   dialect: envConfig.dialect,
   dialectOptions: envConfig.dialectOptions || {}, // Include SSL if defined
   logging: envConfig.logging || false, // Use environment-specific logging
+  pool: {
+    max: 20,          // Maximum connections in pool
+    min: 5,           // Minimum connections maintained
+    acquire: 30000,   // 30 seconds to get connection
+    idle: 10000,      // 10 seconds before releasing idle connection
+    evict: 5000,      // Check for idle connections every 5s
+  },
+  retry: {
+    max: 3,           // Retry failed connections
+  },
+  query: {
+    timeout: 30000,   // 30 second query timeout
+  },
 });
 
 // Test connection when the module is loaded

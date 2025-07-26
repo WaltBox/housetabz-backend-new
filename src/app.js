@@ -19,6 +19,7 @@ const { startUrgentMessageSchedulers } = require('./utils/urgentMessageScheduler
 const { startBillSchedulers } = require('./utils/billScheduler');
 const { startLatePaymentScheduler } = require('./utils/latePaymentScheduler');
 const { startHouseRiskScheduler } = require('./utils/houseRiskScheduler');
+const paymentReminderWorker = require('./workers/paymentReminderWorker');
 
 
 // const { authenticateUser } = require('./middleware/auth/userAuth');
@@ -58,6 +59,9 @@ const HouseServiceLedgerRoutes = require('./routes/houseServiceLedgerRoutes')
 const reminderRoutes = require('./routes/reminderRoutes')
 const transactionRoutes = require('./routes/transactionRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const paymentReminderRoutes = require('./routes/paymentReminderRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 const botFilter = require('./middleware/security/botFilter');
 
 // Initialize Express app
@@ -181,6 +185,9 @@ app.use('/api/admin/transactions', transactionRoutes);
 app.use('/api/admin/users', adminUserRoutes);          // User management
 app.use('/api/admin/houses', adminHouseRoutes);
 app.use('/api/urgent-messages', urgentMessageRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/reminders', paymentReminderRoutes);
+app.use('/api', healthRoutes);
 
 // For debugging, add this middleware before your routes
 app.use((req, res, next) => {
@@ -267,6 +274,9 @@ app.use((err, req, res, next) => {
  
 
     startUrgentMessageSchedulers(); 
+  
+    // Start payment reminder worker
+    paymentReminderWorker.start();
   
     // Use the PORT environment variable set by Elastic Beanstalk, or fall back to config.port or 8080
     const port = process.env.PORT || config.port || 8080;

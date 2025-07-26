@@ -13,6 +13,7 @@ if (!stripeSecretKey) {
 
 const stripe = require('stripe')(stripeSecretKey);
 const { StripeCustomer, PaymentMethod, User } = require('../models');
+const { Op } = require('sequelize');
 
 class StripeService {
   async getOrCreateCustomer(userId) {
@@ -68,21 +69,71 @@ class StripeService {
   async processPayment({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
     try {
       const stripeCustomer = await this.getOrCreateCustomer(userId);
-      const stripePaymentMethodId = String(paymentMethodId);
       let selectedPaymentMethod;
 
-      if (stripePaymentMethodId.startsWith('pm_')) {
-        selectedPaymentMethod = stripePaymentMethodId;
-      } else {
-        const dbPaymentMethod = await PaymentMethod.findOne({
-          where: { userId, id: parseInt(stripePaymentMethodId, 10) }
+      // If no payment method is provided, use the user's default payment method
+      if (!paymentMethodId) {
+        const defaultPaymentMethod = await PaymentMethod.findOne({
+          where: { userId, isDefault: true }
         });
-        if (!dbPaymentMethod) {
-          throw new Error('Payment method not found or unauthorized');
+        
+        if (!defaultPaymentMethod) {
+          throw new Error('No payment method provided and no default payment method found');
         }
-        selectedPaymentMethod = dbPaymentMethod.stripePaymentMethodId;
+        
+        selectedPaymentMethod = defaultPaymentMethod.stripePaymentMethodId;
+        console.log(`Using default payment method for user ${userId}: ${selectedPaymentMethod}`);
+      } else {
+        // Try to use the provided payment method
+        const stripePaymentMethodId = String(paymentMethodId);
+        
+        if (stripePaymentMethodId.startsWith('pm_')) {
+          // Direct Stripe payment method ID
+          selectedPaymentMethod = stripePaymentMethodId;
+        } else {
+          // Database payment method ID
+          const dbPaymentMethod = await PaymentMethod.findOne({
+            where: { userId, id: parseInt(stripePaymentMethodId, 10) }
+          });
+          
+          if (!dbPaymentMethod) {
+            // If provided payment method is not found, fall back to default
+            console.log(`Payment method ${paymentMethodId} not found for user ${userId}, falling back to default`);
+            
+            const defaultPaymentMethod = await PaymentMethod.findOne({
+              where: { userId, isDefault: true }
+            });
+            
+            if (!defaultPaymentMethod) {
+              throw new Error('Payment method not found or unauthorized and no default payment method available');
+            }
+            
+            selectedPaymentMethod = defaultPaymentMethod.stripePaymentMethodId;
+            console.log(`Using default payment method as fallback for user ${userId}: ${selectedPaymentMethod}`);
+          } else {
+            selectedPaymentMethod = dbPaymentMethod.stripePaymentMethodId;
+          }
+        }
       }
 
+      // Check if the selected payment method is a fake HouseTabz payment method
+      if (selectedPaymentMethod.includes('housetabz')) {
+        // Find a real payment method to use instead
+        const realPaymentMethod = await PaymentMethod.findOne({
+          where: { 
+            userId, 
+            stripePaymentMethodId: { [Op.not]: { [Op.like]: '%housetabz%' } }
+          },
+          order: [['isDefault', 'DESC'], ['createdAt', 'DESC']]
+        });
+
+        if (!realPaymentMethod) {
+          throw new Error('Cannot process payment with fake HouseTabz payment method and no real payment methods available');
+        }
+
+        selectedPaymentMethod = realPaymentMethod.stripePaymentMethodId;
+        console.log(`Replaced fake HouseTabz payment method with real payment method for user ${userId}: ${selectedPaymentMethod}`);
+      }
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // Convert dollars to cents
@@ -192,10 +243,21 @@ class StripeService {
       }
       const stripeCustomer = await this.getOrCreateCustomer(userId);
     
-      await stripe.customers.update(stripeCustomer.stripeCustomerId, {
-        invoice_settings: { default_payment_method: paymentMethod.stripePaymentMethodId }
-      });
+      // Only update Stripe if it's a real Stripe payment method (not a fake HouseTabz one)
+      if (!paymentMethod.stripePaymentMethodId.includes('housetabz')) {
+        try {
+          await stripe.customers.update(stripeCustomer.stripeCustomerId, {
+            invoice_settings: { default_payment_method: paymentMethod.stripePaymentMethodId }
+          });
+        } catch (stripeError) {
+          console.log(`Warning: Could not update Stripe default payment method for ${paymentMethod.stripePaymentMethodId}:`, stripeError.message);
+          // Continue with database update even if Stripe update fails
+        }
+      } else {
+        console.log(`Skipping Stripe update for fake HouseTabz payment method: ${paymentMethod.stripePaymentMethodId}`);
+      }
 
+      // Always update our database regardless of Stripe update success
       await PaymentMethod.update({ isDefault: false }, { where: { userId }, transaction: t });
       await PaymentMethod.update({ isDefault: true }, { where: { id: paymentMethodId }, transaction: t });
 

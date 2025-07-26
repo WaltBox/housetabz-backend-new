@@ -43,6 +43,18 @@ exports.completeSetupIntent = async (req, res) => {
 
     const paymentMethod = await stripeService.createPaymentMethodFromSetupIntent(userId, stripePaymentMethodId);
 
+    // Advance onboarding step if user was on 'payment' step or complete onboarding
+    try {
+      const { User } = require('../models');
+      const user = await User.findByPk(userId);
+      if (user) {
+        await user.advanceOnboardingStep();
+      }
+    } catch (error) {
+      console.error('Error advancing onboarding step after adding payment method:', error);
+      // Don't fail the payment method creation if onboarding step update fails
+    }
+
     res.json({
       message: 'Payment method added successfully',
       paymentMethod
@@ -82,25 +94,40 @@ exports.setDefaultPaymentMethod = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    // Add explicit authorization check - verify this payment method belongs to the user
-    // First check in our database (if we store payment methods)
-    const paymentMethod = await PaymentMethod.findOne({
-      where: { stripePaymentMethodId: id, userId }
-    });
-
-    if (!paymentMethod) {
-      // If not found in our database, verify with Stripe
-      const methods = await stripeService.getPaymentMethods(userId);
-      const methodExists = methods.some(method => method.id === id);
+    // Determine if the id is a database ID or Stripe payment method ID
+    let paymentMethod;
+    let paymentMethodDbId;
+    
+    if (id.startsWith('pm_')) {
+      // It's a Stripe payment method ID
+      paymentMethod = await PaymentMethod.findOne({
+        where: { stripePaymentMethodId: id, userId }
+      });
       
-      if (!methodExists) {
+      if (!paymentMethod) {
+        return res.status(403).json({ 
+          error: 'Unauthorized access to payment method'
+        });
+      }
+      
+      paymentMethodDbId = paymentMethod.id;
+    } else {
+      // It's a database payment method ID
+      paymentMethodDbId = parseInt(id, 10);
+      
+      paymentMethod = await PaymentMethod.findOne({
+        where: { id: paymentMethodDbId, userId }
+      });
+      
+      if (!paymentMethod) {
         return res.status(403).json({ 
           error: 'Unauthorized access to payment method'
         });
       }
     }
 
-    await stripeService.setDefaultPaymentMethod(userId, id);
+    // Call the service with the database payment method ID
+    await stripeService.setDefaultPaymentMethod(userId, paymentMethodDbId);
     const updatedMethods = await stripeService.getPaymentMethods(userId);
 
     res.json({

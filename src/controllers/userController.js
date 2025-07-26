@@ -73,7 +73,7 @@ exports.getAllUsers = async (req, res, next) => {
 exports.getUser = async (req, res, next) => {
   try {
     const user = await User.findByPk(req.params.id, {
-      attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId'],
+      attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId', 'onboarded', 'onboarding_step', 'onboarded_at'],
       include: [
         {
           model: House,
@@ -83,7 +83,7 @@ exports.getUser = async (req, res, next) => {
         {
           model: Charge,
           as: 'charges',
-          attributes: ['id', 'amount', 'status', 'billId', 'name']
+          attributes: ['id', 'amount', 'status', 'billId', 'name', 'dueDate', 'baseAmount', 'serviceFee', 'advanced']
         },
         {
           model: UserFinance,  // Include the finance data
@@ -505,15 +505,134 @@ exports.joinHouse = async (req, res, next) => {
     user.houseId = house.id;
     await user.save();
 
+    // Advance onboarding step if user was on 'house' step
+    try {
+      await user.advanceOnboardingStep();
+    } catch (error) {
+      console.error('Error advancing onboarding step after joining house:', error);
+      // Don't fail the house joining if onboarding step update fails
+    }
+
     res.json({
       message: 'Joined house successfully',
       user: {
         id: user.id,
         houseId: user.houseId,
+        onboarded: user.onboarded,
+        onboarding_step: user.onboarding_step,
+        onboarded_at: user.onboarded_at
       },
     });
   } catch (error) {
     console.error('Error joining house:', error);
+    next(error);
+  }
+};
+
+// Complete user onboarding
+exports.completeOnboarding = async (req, res, next) => {
+  try {
+    const { id: userId } = req.params;
+    
+    // Authorization check: User can only complete their own onboarding
+    if (req.user.id != userId) {
+      return res.status(403).json({ 
+        error: 'Unauthorized access',
+        message: 'Users can only complete their own onboarding'
+      });
+    }
+
+    const { User, House, PaymentMethod } = require('../models');
+    const { sequelize } = require('../models');
+
+    // Start transaction
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Find user with current onboarding status
+      const user = await User.findByPk(userId, { transaction });
+      
+      if (!user) {
+        await transaction.rollback();
+        return res.status(404).json({ 
+          error: 'User not found' 
+        });
+      }
+
+      // Check if user is already onboarded
+      if (user.onboarded) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'User is already onboarded',
+          message: 'Onboarding has already been completed',
+          onboarded_at: user.onboarded_at
+        });
+      }
+
+      // Validate user has a house
+      if (!user.houseId) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'House required',
+          message: 'User must be part of a house to complete onboarding',
+          onboarding_step: 'house'
+        });
+      }
+
+      // Validate house exists
+      const house = await House.findByPk(user.houseId, { transaction });
+      if (!house) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'Invalid house',
+          message: 'User is associated with a house that does not exist'
+        });
+      }
+
+      // Validate user has an active payment method
+      const paymentMethod = await PaymentMethod.findOne({
+        where: { userId: user.id },
+        transaction
+      });
+
+      if (!paymentMethod) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'Payment method required',
+          message: 'User must have at least one active payment method to complete onboarding',
+          onboarding_step: 'payment'
+        });
+      }
+
+      // All validations passed - complete onboarding
+      const completedAt = new Date();
+      await user.update({
+        onboarded: true,
+        onboarding_step: 'completed',
+        onboarded_at: completedAt
+      }, { transaction });
+
+      await transaction.commit();
+
+      res.json({
+        success: true,
+        message: 'Onboarding completed successfully',
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          onboarded: true,
+          onboarding_step: 'completed',
+          onboarded_at: completedAt
+        }
+      });
+
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error completing onboarding:', error);
     next(error);
   }
 };

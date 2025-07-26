@@ -41,6 +41,16 @@ module.exports = {
       },
     },
     logging: false, // Disable logging in production
+    pool: {
+      max: 20,
+      min: 5,
+      acquire: 30000,
+      idle: 10000,
+      evict: 5000,
+    },
+    query: {
+      timeout: 30000, // 30 second query timeout
+    },
   },
 };
 

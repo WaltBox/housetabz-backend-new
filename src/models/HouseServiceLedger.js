@@ -19,6 +19,18 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 0.00
     },
+    serviceFeeTotal: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+      comment: 'Total service fees for this ledger cycle'
+    },
+    totalRequired: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+      comment: 'Total amount required including base amount and service fees'
+    },
     funded: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,

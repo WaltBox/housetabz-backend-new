@@ -69,7 +69,7 @@ exports.getHouseServicesWithLedgersAndSummaries = async (req, res) => {
           as: 'ledgers',
           where: { status: 'active' },
           required: false,
-          attributes: ['id', 'fundingRequired', 'funded', 'status', 'metadata', 'createdAt']
+          attributes: ['id', 'fundingRequired', 'serviceFeeTotal', 'totalRequired', 'funded', 'status', 'metadata', 'createdAt']
         }
       ],
       order: [
@@ -89,7 +89,7 @@ exports.getHouseServicesWithLedgersAndSummaries = async (req, res) => {
       let nonContributors = [];
       
       if (activeLedger) {
-        fundingRequired = Number(activeLedger.fundingRequired) || 0;
+        fundingRequired = Number(activeLedger.totalRequired) || Number(activeLedger.fundingRequired) || 0;
         funded = Number(activeLedger.funded) || 0;
         
         // Create a map of user contributions from metadata
@@ -258,6 +258,13 @@ exports.getHouseServiceById = async (req, res) => {
           model: User,
           as: 'designatedUser',
           attributes: ['id', 'username']
+        },
+        {
+          model: require('../models').HouseServiceLedger,
+          as: 'ledgers',
+          where: { status: 'active' },
+          required: false,
+          attributes: ['id', 'fundingRequired', 'serviceFeeTotal', 'totalRequired', 'funded', 'status', 'metadata', 'createdAt']
         },
         {
           model: ServiceRequestBundle,

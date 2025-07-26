@@ -15,7 +15,7 @@ const validateEmail = (email) => {
 const authController = {
   async login(req, res) {
     try {
-      const { email, password } = req.body;
+      const { email, password, rememberMe = false } = req.body;
 
       // Find user
       const user = await User.findOne({ 
@@ -38,8 +38,10 @@ const authController = {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      // Generate both tokens
-      const token = generateAccessToken(user.id);
+      // Generate both tokens with extended expiration for rememberMe
+      const token = rememberMe 
+        ? jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '90d' })  // 90 days for remember me
+        : generateAccessToken(user.id);  // 30 days for regular login
       const refreshToken = generateRefreshToken(user.id);
 
       // the response structure
@@ -47,6 +49,7 @@ const authController = {
         success: true,
         token,
         refreshToken,
+        rememberMe,
         data: {
           user: {
             id: user.id,
@@ -57,7 +60,10 @@ const authController = {
             house: user.house,
             balance: user.balance,
             points: user.points,
-            credit: user.credit
+            credit: user.credit,
+            onboarded: user.onboarded,
+            onboarding_step: user.onboarding_step,
+            onboarded_at: user.onboarded_at
           }
         }
       };
@@ -122,7 +128,10 @@ const authController = {
           email: user.email,
           phoneNumber: user.phoneNumber,
           houseId: user.houseId,
-          house: user.house
+          house: user.house,
+          onboarded: user.onboarded,
+          onboarding_step: user.onboarding_step,
+          onboarded_at: user.onboarded_at
         }
       });
   
@@ -137,7 +146,7 @@ const authController = {
 
   async register(req, res) {
     try {
-      const { username, email, password, phoneNumber } = req.body;
+      const { username, email, password, phoneNumber, rememberMe = false } = req.body;
 
       // Input validation
       if (!username || !email || !password) {
@@ -239,8 +248,10 @@ const authController = {
         phoneNumber: cleanedPhone // Use the cleaned and formatted phone number
       });
 
-      // Generate both tokens
-      const token = generateAccessToken(user.id);
+      // Generate both tokens with extended expiration for rememberMe
+      const token = rememberMe 
+        ? jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '90d' })  // 90 days for remember me
+        : generateAccessToken(user.id);  // 30 days for regular login
       const refreshToken = generateRefreshToken(user.id);
 
       res.status(201).json({
@@ -251,10 +262,14 @@ const authController = {
             id: user.id,
             email: user.email,
             username: user.username,
-            phoneNumber: user.phoneNumber
+            phoneNumber: user.phoneNumber,
+            onboarded: user.onboarded,
+            onboarding_step: user.onboarding_step,
+            onboarded_at: user.onboarded_at
           },
           token,
-          refreshToken
+          refreshToken,
+          rememberMe
         }
       });
 
@@ -326,13 +341,25 @@ const authController = {
   async getCurrentUser(req, res) {
     try {
       const user = await User.findByPk(req.user.id, {
-        attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId', 'balance', 'points', 'credit'],
-        include: [{
-          model: House,
-          as: 'house',
-          attributes: ['id', 'name'],
-          required: false
-        }]
+        attributes: ['id', 'username', 'email', 'phoneNumber', 'houseId', 'onboarded', 'onboarding_step', 'onboarded_at'],
+        include: [
+          {
+            model: House,
+            as: 'house',
+            attributes: ['id', 'name'],
+            required: false
+          },
+          {
+            model: Charge,
+            as: 'charges',
+            attributes: ['id', 'amount', 'status', 'billId', 'name', 'dueDate', 'baseAmount', 'serviceFee', 'advanced']
+          },
+          {
+            model: UserFinance,
+            as: 'finance',
+            attributes: ['balance', 'credit', 'points']
+          }
+        ]
       });
 
       if (!user) {
@@ -351,6 +378,95 @@ const authController = {
       res.status(500).json({
         success: false,
         message: 'An error occurred fetching user data',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  },
+
+  // New endpoint to check token validity and refresh if needed
+  async checkTokenAndRefresh(req, res) {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({
+          success: false,
+          message: 'No token provided',
+          needsAuth: true
+        });
+      }
+
+      const token = authHeader.split(' ')[1];
+      const { refreshToken } = req.body;
+
+      try {
+        // Try to verify the current token
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await User.findByPk(decoded.id);
+
+        if (!user) {
+          return res.status(401).json({
+            success: false,
+            message: 'User not found',
+            needsAuth: true
+          });
+        }
+
+        // Token is valid, return user data
+        return res.json({
+          success: true,
+          valid: true,
+          data: { user }
+        });
+
+      } catch (tokenError) {
+        // Token expired or invalid, try to refresh
+        if (tokenError.name === 'TokenExpiredError' && refreshToken) {
+          try {
+            const decoded = verifyRefreshToken(refreshToken);
+            const user = await User.findByPk(decoded.id);
+
+            if (!user) {
+              return res.status(401).json({
+                success: false,
+                message: 'User not found',
+                needsAuth: true
+              });
+            }
+
+            // Generate new tokens
+            const newAccessToken = generateAccessToken(user.id);
+            const newRefreshToken = generateRefreshToken(user.id);
+
+            return res.json({
+              success: true,
+              refreshed: true,
+              token: newAccessToken,
+              refreshToken: newRefreshToken,
+              data: { user }
+            });
+
+          } catch (refreshError) {
+            // Refresh token also expired
+            return res.status(401).json({
+              success: false,
+              message: 'Session expired',
+              needsAuth: true
+            });
+          }
+        } else {
+          // No refresh token provided or other token error
+          return res.status(401).json({
+            success: false,
+            message: 'Invalid token',
+            needsAuth: true
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Token check error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }

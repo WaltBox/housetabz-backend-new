@@ -59,6 +59,20 @@ module.exports = (sequelize, DataTypes) => {
     resetCodeExpires: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    onboarded: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    onboarding_step: {
+      type: DataTypes.ENUM('house', 'payment', 'completed'),
+      allowNull: false,
+      defaultValue: 'house'
+    },
+    onboarded_at: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   });
 
@@ -86,6 +100,73 @@ module.exports = (sequelize, DataTypes) => {
     }
   };
 
+  // Check if user has completed onboarding
+  User.prototype.isOnboarded = function() {
+    return this.onboarded === true;
+  };
+
+  // Advance onboarding step if conditions are met
+  User.prototype.advanceOnboardingStep = async function(transaction = null) {
+    if (this.onboarded) {
+      return this; // Already onboarded, nothing to do
+    }
+
+    const { House, PaymentMethod, StripeCustomer } = require('../models');
+    
+    try {
+      // Check if user has a house
+      const hasHouse = this.houseId !== null;
+      
+      // Check if user has an active payment method
+      let hasPaymentMethod = false;
+      if (hasHouse) {
+        const paymentMethod = await PaymentMethod.findOne({
+          where: { userId: this.id },
+          transaction
+        });
+        hasPaymentMethod = !!paymentMethod;
+      }
+
+      // Determine new onboarding step
+      let newStep = this.onboarding_step;
+      let shouldComplete = false;
+
+      if (this.onboarding_step === 'house' && hasHouse) {
+        newStep = 'payment';
+      }
+      
+      if (this.onboarding_step === 'payment' && hasHouse && hasPaymentMethod) {
+        newStep = 'completed';
+        shouldComplete = true;
+      }
+
+      // If advancing from house step directly to completed (user has both house and payment method)
+      if (this.onboarding_step === 'house' && hasHouse && hasPaymentMethod) {
+        newStep = 'completed';
+        shouldComplete = true;
+      }
+
+      // Update the user if there's a change
+      if (newStep !== this.onboarding_step || shouldComplete) {
+        const updateData = {
+          onboarding_step: newStep
+        };
+
+        if (shouldComplete) {
+          updateData.onboarded = true;
+          updateData.onboarded_at = new Date();
+        }
+
+        await this.update(updateData, { transaction });
+      }
+
+      return this;
+    } catch (error) {
+      console.error('Error advancing onboarding step:', error);
+      throw error;
+    }
+  };
+
   User.associate = (models) => {
     // Your existing associations
     User.hasMany(models.Charge, { foreignKey: 'userId', as: 'charges' });
@@ -95,6 +176,9 @@ module.exports = (sequelize, DataTypes) => {
     
     User.hasOne(models.UserFinance, { foreignKey: 'userId', as: 'finance' });
     User.hasMany(models.Transaction, { foreignKey: 'userId', as: 'transactions' });
+    
+    // Add UrgentMessage association
+    User.hasMany(models.UrgentMessage, { foreignKey: 'user_id', as: 'urgentMessages' });
   };
 
   return User;

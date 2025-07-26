@@ -243,6 +243,9 @@ module.exports = (sequelize, DataTypes) => {
 
       if (shouldCommit) {
         await transaction.commit();
+        
+        // Send notifications to all house members AFTER transaction commits
+        await this.sendAdvanceNotifications(bill.houseId);
       }
 
       return true;
@@ -251,6 +254,67 @@ module.exports = (sequelize, DataTypes) => {
         await transaction.rollback();
       }
       throw error;
+    }
+  };
+
+  // Helper method to send advance notifications to all house members
+  Charge.prototype.sendAdvanceNotifications = async function (houseId) {
+    try {
+      // Get all users in the house
+      const users = await sequelize.models.User.findAll({ 
+        where: { houseId },
+        attributes: ['id', 'username', 'email']
+      });
+
+      // Get current advance allowance remaining
+      const advanceService = require('../services/advanceService');
+      const advanceCheck = await advanceService.canAdvanceCharge(houseId, 0); // Check with 0 to get current remaining
+      const remainingAdvance = advanceCheck.remaining || 0;
+
+      // Format the notification message
+      const message = `HouseTabz had to advance '${this.name}' for $${parseFloat(this.amount).toFixed(2)}. Your house now has $${remainingAdvance.toFixed(2)} remaining. See who missed their payment and remind them to pay.`;
+
+      // Send notification to each house member
+      for (const user of users) {
+        try {
+          // Create database notification
+          await sequelize.models.Notification.create({
+            userId: user.id,
+            message: message,
+            isRead: false,
+            metadata: {
+              type: 'charge_advanced',
+              chargeId: this.id,
+              houseId: houseId,
+              advancedAmount: this.amount,
+              remainingAdvance: remainingAdvance,
+              chargeName: this.name
+            }
+          });
+
+          // Send push notification
+          const pushNotificationService = require('../services/pushNotificationService');
+          await pushNotificationService.sendPushNotification(user, {
+            title: 'HouseTabz Advanced Payment',
+            message: message,
+            data: {
+              type: 'charge_advanced',
+              chargeId: this.id,
+              houseId: houseId,
+              advancedAmount: this.amount,
+              remainingAdvance: remainingAdvance
+            }
+          });
+
+          console.log(`📢 Sent advance notification to ${user.username} about charge ${this.id}`);
+        } catch (notificationError) {
+          console.error(`Error sending advance notification to user ${user.id}:`, notificationError);
+        }
+      }
+
+      console.log(`✅ Sent advance notifications to ${users.length} users in house ${houseId}`);
+    } catch (error) {
+      console.error(`Error sending advance notifications for charge ${this.id}:`, error);
     }
   };
 

@@ -2,6 +2,7 @@
 const { House, User, UserFinance, Bill, HouseFinance, HouseStatusIndex, Charge } = require('../models');
 const { Op } = require('sequelize');
 const axios = require('axios'); // still available if needed for other calls
+const { getAdvanceAllowance, getAdvanceUsage, getAdvancedCharges } = require('../services/advanceService');
 
 // Create a new house and update the creator's houseId
 exports.createHouse = async (req, res, next) => {
@@ -19,8 +20,19 @@ exports.createHouse = async (req, res, next) => {
       creator_id,
     });
 
-    // Optionally update the creator user's houseId here if desired:
-    // await User.update({ houseId: house.id }, { where: { id: creator_id } });
+    // Update the creator user's houseId and advance onboarding step
+    const creator = await User.findByPk(creator_id);
+    if (creator) {
+      await creator.update({ houseId: house.id });
+      
+      // Advance onboarding step if user was on 'house' step
+      try {
+        await creator.advanceOnboardingStep();
+      } catch (error) {
+        console.error('Error advancing onboarding step after house creation:', error);
+        // Don't fail the house creation if onboarding step update fails
+      }
+    }
 
     res.status(201).json({
       message: 'House created successfully',
@@ -37,7 +49,7 @@ exports.createHouse = async (req, res, next) => {
 
 exports.getHouseWithTabsData = async (req, res, next) => {
   try {
-    const { id: houseId } = req.params;
+    const { houseId } = req.params;
     console.log('=== getHouseWithTabsData called ===');
     console.log('House ID:', houseId);
     
@@ -177,7 +189,7 @@ exports.getHouseWithTabsData = async (req, res, next) => {
     res.json(responseData);
   } catch (error) {
     console.error('=== ERROR in getHouseWithTabsData ===');
-    console.error('House ID:', req.params.id);
+    console.error('House ID:', req.params.houseId);
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
@@ -284,6 +296,73 @@ exports.deleteHouse = async (req, res, next) => {
     await house.destroy();
     res.json({ message: 'House deleted successfully' });
   } catch (error) {
+    next(error);
+  }
+};
+
+// Get advance summary for a house
+exports.getAdvanceSummary = async (req, res, next) => {
+  try {
+    const { id: houseId } = req.params;
+    
+    // Get house basic info with HSI data
+    const house = await House.findByPk(houseId, {
+      include: [
+        {
+          model: HouseStatusIndex,
+          as: 'statusIndex',
+          attributes: ['score', 'bracket', 'feeMultiplier', 'creditMultiplier'],
+          required: false
+        }
+      ]
+    });
+
+    if (!house) {
+      return res.status(404).json({ message: 'House not found' });
+    }
+
+    // Get advance usage data
+    const [advanceUsage, advancedCharges] = await Promise.all([
+      getAdvanceUsage(houseId),
+      getAdvancedCharges(houseId)
+    ]);
+
+    // Format the response for the frontend
+    const advanceSummary = {
+      houseId: parseInt(houseId),
+      houseName: house.name,
+      hsi: house.statusIndex ? {
+        score: house.statusIndex.score,
+        bracket: house.statusIndex.bracket,
+        feeMultiplier: house.statusIndex.feeMultiplier,
+        creditMultiplier: house.statusIndex.creditMultiplier
+      } : null,
+      advance: {
+        totalAllowance: advanceUsage.allowance,
+        currentlyAdvanced: advanceUsage.outstandingAdvanced,
+        remainingAvailable: advanceUsage.remaining,
+        utilizationPercentage: advanceUsage.allowance > 0 
+          ? Math.round((advanceUsage.outstandingAdvanced / advanceUsage.allowance) * 100)
+          : 0
+      },
+      advancedCharges: advancedCharges.map(charge => ({
+        id: charge.id,
+        amount: parseFloat(charge.amount),
+        billName: charge.Bill?.name || 'Unknown Bill',
+        userName: charge.User?.username || `User ${charge.userId}`,
+        advancedAt: charge.advancedAt,
+        dueDate: charge.dueDate
+      })),
+      summary: {
+        totalChargesAdvanced: advancedCharges.length,
+        canAdvanceMore: advanceUsage.remaining > 0,
+        isNearLimit: advanceUsage.remaining < (advanceUsage.allowance * 0.1) // Less than 10% remaining
+      }
+    };
+
+    res.json(advanceSummary);
+  } catch (error) {
+    console.error('Error fetching advance summary:', error);
     next(error);
   }
 };

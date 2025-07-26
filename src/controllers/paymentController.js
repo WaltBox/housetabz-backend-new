@@ -6,6 +6,7 @@ const hsiService = require('../services/houseRiskService');
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
 const financeService = require('../services/financeService');
+const urgentMessageService = require('../services/urgentMessageService');
 const logger = createLogger('payment-controller');
 
 // Calculate payment points based on charge due date
@@ -32,6 +33,9 @@ const paymentController = {
           code: 'MISSING_IDEMPOTENCY_KEY'
         });
       }
+
+      // Note: paymentMethodId is now optional - if not provided, 
+      // the StripeService will use the user's default payment method
 
       // Check for existing payment with this idempotency key
       const existingIdempotentPayment = await Payment.findOne({
@@ -127,6 +131,22 @@ const paymentController = {
 
         // Refresh the payment record.
         payment = await Payment.findByPk(payment.id);
+        
+        // 🔥 NEW: Update urgent messages in real-time after single payment
+        try {
+          if (task && task.chargeId) {
+            await urgentMessageService.updateUrgentMessagesForPayment({
+              chargeIds: [task.chargeId],
+              userId: userId,
+              paymentId: payment.id
+            });
+            console.log('✅ Urgent messages updated after single payment');
+          }
+        } catch (urgentError) {
+          console.error('❌ Error updating urgent messages after single payment:', urgentError);
+          // Don't fail the payment if urgent message update fails
+        }
+        
         return res.json({
           message: 'Payment processed successfully',
           payment,
@@ -177,6 +197,9 @@ async processBatchPayment(req, res) {
         code: 'MISSING_IDEMPOTENCY_KEY'
       });
     }
+
+    // Note: paymentMethodId is now optional - if not provided, 
+    // the StripeService will use the user's default payment method
 
     // Check for existing payment with this idempotency key
     const existingIdempotentPayment = await Payment.findOne({
@@ -382,18 +405,41 @@ async processBatchPayment(req, res) {
           }, { transaction });
         }
         
-        // Process user payment (this handles user balance reduction)
-        await financeService.processUserPayment(
-          userId,
-          totalAmount,
-          'Batch payment for charges',
-          transaction,
-          {
-            paymentId: payment.id,
-            chargeIds: chargeIds.join(','),
-            stripePaymentIntentId: paymentIntent.id
-          }
-        );
+        // Process user payment - split regular charges vs advance repayments
+        const regularChargesAmount = regularCharges.reduce((sum, charge) => sum + parseFloat(charge.amount), 0);
+        const advancedChargesAmount = advancedCharges.reduce((sum, charge) => sum + parseFloat(charge.amount), 0);
+        
+        // Process regular charges (reduces house balance)
+        if (regularChargesAmount > 0) {
+          await financeService.processUserPayment(
+            userId,
+            regularChargesAmount,
+            'Batch payment for regular charges',
+            transaction,
+            {
+              paymentId: payment.id,
+              chargeIds: regularCharges.map(c => c.id).join(','),
+              stripePaymentIntentId: paymentIntent.id,
+              type: 'regular_charges'
+            }
+          );
+        }
+        
+        // Process advance repayments separately (also reduces house balance)
+        if (advancedChargesAmount > 0) {
+          await financeService.processUserPayment(
+            userId,
+            advancedChargesAmount,
+            'Batch payment for advance repayments',
+            transaction,
+            {
+              paymentId: payment.id,
+              chargeIds: advancedCharges.map(c => c.id).join(','),
+              stripePaymentIntentId: paymentIntent.id,
+              type: 'advance_repayments'
+            }
+          );
+        }
         
         // Add points
         const totalPointsEarned = charges.reduce((sum, charge) => 
@@ -410,17 +456,41 @@ async processBatchPayment(req, res) {
           const bill = await Bill.findByPk(firstCharge.billId, { transaction });
           
           if (bill && bill.houseId) {
+            // Get current house balance (already updated by processUserPayment above)
+            const { HouseFinance } = require('../models');
+            let houseFinance = await HouseFinance.findOne({ 
+              where: { houseId: bill.houseId }, 
+              transaction 
+            });
+            
+            if (!houseFinance) {
+              houseFinance = await HouseFinance.create({
+                houseId: bill.houseId,
+                balance: 0,
+                ledger: 0
+              }, { transaction });
+            }
+            
+            // Calculate progressive balance changes for each charge
+            let runningBalance = parseFloat(houseFinance.balance) + advancedChargesAmount;
+            
             // Create individual ADVANCE_REPAYMENT transaction for each advanced charge
             for (const charge of advancedCharges) {
+              const repaymentAmount = parseFloat(charge.amount);
+              const balanceBefore = runningBalance;
+              const balanceAfter = runningBalance - repaymentAmount;
+              
+              // Create ADVANCE_REPAYMENT transaction with proper balance tracking
               await sequelize.models.Transaction.create({
                 houseId: bill.houseId,
                 userId: userId,
                 chargeId: charge.id,
                 type: 'ADVANCE_REPAYMENT',
-                amount: charge.amount,
+                amount: repaymentAmount,
                 description: `User ${userId} repaid advanced charge ${charge.id}`,
-                balanceBefore: 0, // Will be calculated if needed
-                balanceAfter: 0,  // Will be calculated if needed
+                balanceBefore: balanceBefore.toFixed(2),
+                balanceAfter: balanceAfter.toFixed(2),
+                status: 'COMPLETED',
                 metadata: {
                   originalAdvanceDate: charge.advancedAt,
                   repaymentDate: now.toISOString(),
@@ -429,7 +499,10 @@ async processBatchPayment(req, res) {
                 }
               }, { transaction });
               
-              console.log(`✓ Created ADVANCE_REPAYMENT transaction for charge ${charge.id}: $${charge.amount}`);
+              console.log(`✓ Created ADVANCE_REPAYMENT transaction for charge ${charge.id}: $${repaymentAmount} (Balance: ${balanceBefore.toFixed(2)} → ${balanceAfter.toFixed(2)})`);
+              
+              // Update running balance for next iteration
+              runningBalance = balanceAfter;
             }
           }
         }
@@ -437,6 +510,19 @@ async processBatchPayment(req, res) {
 
       await transaction.commit();
       payment = await Payment.findByPk(payment.id);
+      
+      // 🔥 NEW: Update urgent messages in real-time after payment
+      try {
+        await urgentMessageService.updateUrgentMessagesForPayment({
+          chargeIds: chargeIds,
+          userId: userId,
+          paymentId: payment.id
+        });
+        console.log('✅ Urgent messages updated after payment');
+      } catch (urgentError) {
+        console.error('❌ Error updating urgent messages after payment:', urgentError);
+        // Don't fail the payment if urgent message update fails
+      }
       
       return res.json({
         message: 'Batch payment processed successfully',

@@ -24,6 +24,125 @@ const USER_MESSAGE_TYPES = [
   MESSAGE_TYPES.CHARGE_FUNDING
 ];
 
+// NEW: Real-time urgent message update when payments are made
+async function updateUrgentMessagesForPayment(paymentData) {
+  try {
+    console.log('Updating urgent messages for payment:', paymentData);
+    
+    // Get the charges that were paid
+    const chargeIds = paymentData.chargeIds || [];
+    if (chargeIds.length === 0) return;
+    
+    // Get affected charges with user and house info
+    const affectedCharges = await Charge.findAll({
+      where: { id: { [Op.in]: chargeIds } },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'username', 'houseId']
+        },
+        {
+          model: Bill,
+          attributes: ['id', 'name', 'houseId']
+        }
+      ]
+    });
+    
+    if (affectedCharges.length === 0) return;
+    
+    // Get unique house IDs that need message updates
+    const houseIds = [...new Set(affectedCharges.map(charge => charge.User.houseId))];
+    
+    // Update messages for each affected house
+    for (const houseId of houseIds) {
+      await refreshUrgentMessagesForHouse(houseId);
+    }
+    
+    console.log(`Updated urgent messages for ${houseIds.length} houses after payment`);
+  } catch (error) {
+    console.error('Error updating urgent messages for payment:', error);
+  }
+}
+
+// NEW: Real-time urgent message update for a specific house
+async function refreshUrgentMessagesForHouse(houseId) {
+  try {
+    console.log(`Refreshing urgent messages for house ${houseId}`);
+    
+    // Get current unpaid charges for this house
+    const unpaidCharges = await Charge.findAll({
+      where: { status: { [Op.ne]: 'paid' } },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          where: { houseId: houseId },
+          attributes: ['id', 'username', 'houseId']
+        },
+        {
+          model: Bill,
+          attributes: ['id', 'name', 'houseId', 'dueDate']
+        }
+      ]
+    });
+    
+    // Analyze house issues with current data
+    const houseData = await analyzeHouseIssues([{ houseId: houseId, charges: unpaidCharges }]);
+    
+    if (houseData.length > 0) {
+      await refreshMessagesForHouse(houseData[0]);
+    } else {
+      // No issues - resolve all messages for this house
+      await resolveAllMessagesForHouse(houseId);
+    }
+    
+    console.log(`Completed urgent message refresh for house ${houseId}`);
+  } catch (error) {
+    console.error(`Error refreshing urgent messages for house ${houseId}:`, error);
+  }
+}
+
+// NEW: Resolve all urgent messages for a house (when all bills are paid)
+async function resolveAllMessagesForHouse(houseId) {
+  try {
+    const updatedCount = await UrgentMessage.update(
+      { 
+        isResolved: true,
+        body: sequelize.fn('CONCAT', sequelize.col('body'), ' (RESOLVED - All bills paid)')
+      },
+      { 
+        where: { 
+          houseId: houseId, 
+          isResolved: false 
+        } 
+      }
+    );
+    
+    console.log(`Resolved ${updatedCount[0]} urgent messages for house ${houseId} - all bills paid`);
+  } catch (error) {
+    console.error(`Error resolving messages for house ${houseId}:`, error);
+  }
+}
+
+// NEW: Update urgent messages when a specific user makes a payment
+async function updateUrgentMessagesForUser(userId) {
+  try {
+    console.log(`Updating urgent messages for user ${userId}`);
+    
+    // Get user's house
+    const user = await User.findByPk(userId, { attributes: ['id', 'houseId'] });
+    if (!user || !user.houseId) return;
+    
+    // Refresh messages for the user's house
+    await refreshUrgentMessagesForHouse(user.houseId);
+    
+    console.log(`Updated urgent messages for user ${userId} in house ${user.houseId}`);
+  } catch (error) {
+    console.error(`Error updating urgent messages for user ${userId}:`, error);
+  }
+}
+
 // Main function to generate and manage all urgent messages
 async function refreshUrgentMessages() {
   await sequelize.transaction(async trx => {
@@ -770,5 +889,9 @@ module.exports = {
   findOverdueCharges,
   analyzeHouseIssues,
   removeActuallyResolvedMessages,
-  MESSAGE_TYPES
+  MESSAGE_TYPES,
+  updateUrgentMessagesForPayment,
+  refreshUrgentMessagesForHouse,
+  resolveAllMessagesForHouse,
+  updateUrgentMessagesForUser
 };
