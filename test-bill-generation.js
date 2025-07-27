@@ -9,7 +9,7 @@ const { Op } = require('sequelize');
 
 async function testFixedBillGeneration() {
   try {
-    console.log('Debugging database schema...');
+   
     
     // Try to get just one HouseService with limited columns
     const testService = await HouseService.findOne({
@@ -17,7 +17,7 @@ async function testFixedBillGeneration() {
       raw: true // Get raw data
     });
     
-    console.log('Found test service:', testService);
+    
     
     // Try to check table structure directly
     const sequelize = require('./src/models').sequelize;
@@ -26,13 +26,12 @@ async function testFixedBillGeneration() {
       { type: sequelize.QueryTypes.SELECT }
     );
     
-    console.log('Table columns:', tableInfo);
+   
     
     // Now try the original function
-    console.log('Running fixed recurring bill generation test...');
+
     const result = await billService.generateFixedRecurringBills();
-    console.log('Test completed successfully:');
-    console.log(JSON.stringify(result, null, 2));
+  
   } catch (error) {
     console.error('Test failed with error:', error);
   }

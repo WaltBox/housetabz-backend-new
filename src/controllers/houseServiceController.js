@@ -5,9 +5,7 @@ exports.createHouseService = async (req, res) => {
   try {
     const { name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata } = req.body;
     
-    console.log('[createHouseService] Attempting to create HouseService with data:', {
-      name, status, type, houseId, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, serviceRequestBundleId, metadata
-    });
+
 
     const houseService = await HouseService.create({
       name,
@@ -24,8 +22,7 @@ exports.createHouseService = async (req, res) => {
       metadata
     });
     
-    console.log('[createHouseService] HouseService created successfully with ID:', houseService.id);
-    
+
     res.status(201).json({
       message: 'HouseService created successfully',
       houseService,
@@ -33,6 +30,166 @@ exports.createHouseService = async (req, res) => {
   } catch (error) {
     console.error('[createHouseService] Error creating HouseService:', error);
     res.status(500).json({ message: 'Failed to create HouseService', error: error.message });
+  }
+};
+
+// In houseServiceController.js - add this new method
+// Fixed version of the getHouseServicesWithLedgersAndSummaries method
+// Enhanced backend controller with house member contribution tracking
+exports.getHouseServicesWithLedgersAndSummaries = async (req, res) => {
+  try {
+    const { houseId } = req.params;
+    
+    // Check if house exists
+    const house = await House.findByPk(houseId);
+    if (!house) {
+      return res.status(404).json({ message: 'House not found' });
+    }
+    
+    // Get all house members for contribution tracking
+    const houseMembers = await User.findAll({
+      where: { houseId },
+      attributes: ['id', 'username', 'email'],
+      order: [['username', 'ASC']]
+    });
+    
+ 
+    
+    // Get all services with their ledgers
+    const houseServices = await HouseService.findAll({
+      where: { houseId },
+      include: [
+        {
+          model: User,
+          as: 'designatedUser',
+          attributes: ['id', 'username', 'email']
+        },
+        {
+          model: require('../models').HouseServiceLedger,
+          as: 'ledgers',
+          where: { status: 'active' },
+          required: false,
+          attributes: ['id', 'fundingRequired', 'serviceFeeTotal', 'totalRequired', 'funded', 'status', 'metadata', 'createdAt']
+        }
+      ],
+      order: [
+        ['createdAt', 'DESC'],
+        [{ model: require('../models').HouseServiceLedger, as: 'ledgers' }, 'createdAt', 'DESC']
+      ]
+    });
+    
+    // Format the response to include calculated fields and contribution details
+    const servicesWithData = houseServices.map(service => {
+      const activeLedger = service.ledgers?.[0];
+      
+      let percentFunded = 0;
+      let fundingRequired = 0;
+      let funded = 0;
+      let contributorDetails = [];
+      let nonContributors = [];
+      
+      if (activeLedger) {
+        fundingRequired = Number(activeLedger.totalRequired) || Number(activeLedger.fundingRequired) || 0;
+        funded = Number(activeLedger.funded) || 0;
+        
+        // Create a map of user contributions from metadata
+        const contributionMap = new Map();
+        if (activeLedger.metadata?.fundedUsers?.length > 0) {
+          activeLedger.metadata.fundedUsers.forEach(fundedUser => {
+            contributionMap.set(fundedUser.userId, {
+              userId: fundedUser.userId,
+              amount: Number(fundedUser.amount) || 0,
+              timestamp: fundedUser.timestamp,
+              lastUpdated: fundedUser.lastUpdated,
+              charges: fundedUser.charges || []
+            });
+          });
+        }
+        
+      
+        
+        // Build detailed contributor and non-contributor lists
+        houseMembers.forEach(member => {
+          const contribution = contributionMap.get(member.id);
+          
+          if (contribution) {
+            // Member has contributed
+            contributorDetails.push({
+              userId: member.id,
+              username: member.username,
+              email: member.email,
+              amount: contribution.amount,
+              timestamp: contribution.timestamp,
+              lastUpdated: contribution.lastUpdated,
+              percentOfTotal: fundingRequired > 0 
+                ? Math.round((contribution.amount / fundingRequired) * 100) 
+                : 0
+            });
+         
+          } else {
+            // Member hasn't contributed yet
+            nonContributors.push({
+              userId: member.id,
+              username: member.username,
+              email: member.email,
+              expectedAmount: fundingRequired > 0 
+                ? Math.round(fundingRequired / houseMembers.length * 100) / 100 
+                : 0
+            });
+        
+          }
+        });
+        
+        // Calculate percentage
+        if (fundingRequired > 0) {
+          percentFunded = Math.round((funded / fundingRequired) * 100);
+        }
+      } else {
+        // No active ledger - all members are non-contributors
+        fundingRequired = Number(service.amount) || 0;
+        funded = 0;
+        percentFunded = 0;
+        
+        nonContributors = houseMembers.map(member => ({
+          userId: member.id,
+          username: member.username,
+          email: member.email,
+          expectedAmount: fundingRequired > 0 
+            ? Math.round(fundingRequired / houseMembers.length * 100) / 100 
+            : 0
+        }));
+      }
+      
+      // Sort contributors by contribution amount (highest first)
+      contributorDetails.sort((a, b) => b.amount - a.amount);
+      
+      return {
+        ...service.toJSON(),
+        calculatedData: {
+          percentFunded: Math.min(100, percentFunded),
+          fundingRequired,
+          funded,
+          remainingAmount: Math.max(0, fundingRequired - funded),
+          contributorCount: contributorDetails.length,
+          totalHouseMembers: houseMembers.length,
+          contributorDetails, // Who has contributed and how much
+          nonContributors,    // Who hasn't contributed yet
+          isFullyFunded: percentFunded >= 100,
+          averageContribution: contributorDetails.length > 0 
+            ? Math.round((funded / contributorDetails.length) * 100) / 100 
+            : 0
+        }
+      };
+    });
+    
+    res.status(200).json({
+      houseId,
+      totalHouseMembers: houseMembers.length,
+      houseServices: servicesWithData
+    });
+  } catch (error) {
+    console.error('Error fetching house services with data:', error);
+    res.status(500).json({ message: 'Failed to fetch house services', error: error.message });
   }
 };
 
@@ -103,6 +260,13 @@ exports.getHouseServiceById = async (req, res) => {
           attributes: ['id', 'username']
         },
         {
+          model: require('../models').HouseServiceLedger,
+          as: 'ledgers',
+          where: { status: 'active' },
+          required: false,
+          attributes: ['id', 'fundingRequired', 'serviceFeeTotal', 'totalRequired', 'funded', 'status', 'metadata', 'createdAt']
+        },
+        {
           model: ServiceRequestBundle,
           as: 'serviceRequestBundle',
           include: [
@@ -145,8 +309,7 @@ exports.updateHouseService = async (req, res) => {
       return res.status(404).json({ message: 'HouseService not found' });
     }
     
-    console.log('[updateHouseService] Updating HouseService with ID:', id, 'with data:', { name, status, type, accountNumber, amount, dueDay, createDay, reminderDay, designatedUserId, metadata });
-    
+ 
     // Update the fields
     await houseService.update({
       name: name || houseService.name,
@@ -160,9 +323,7 @@ exports.updateHouseService = async (req, res) => {
       designatedUserId: designatedUserId !== undefined ? designatedUserId : houseService.designatedUserId,
       metadata: metadata || houseService.metadata
     });
-    
-    console.log('[updateHouseService] HouseService updated successfully:', houseService.id);
-    
+  
     res.status(200).json({
       message: 'HouseService updated successfully',
       houseService
@@ -185,9 +346,7 @@ exports.deleteHouseService = async (req, res) => {
     }
     
     await houseService.destroy();
-    
-    console.log('[deleteHouseService] HouseService deleted successfully with ID:', id);
-    
+
     res.status(200).json({ message: 'HouseService deleted successfully' });
   } catch (error) {
     console.error('Error deleting HouseService:', error);
@@ -218,7 +377,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
     });
     
     if (existingService) {
-      console.log(`HouseService already exists for bundle ${serviceRequestBundleId} with ID:`, existingService.id);
+     
       return existingService;
     }
     
@@ -252,7 +411,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
         houseServiceData.createDay = createDay;
         houseServiceData.amount = bundle.takeOverRequest.monthlyAmount;
         
-        console.log(`[createFromServiceRequestBundle] Fixed service with dueDay: ${dueDay}, calculated createDay: ${createDay}`);
+      
       } else {
         // For variable services: Calculate reminderDay (approximately 1 week before dueDay)
         let reminderDay = dueDay - 7;
@@ -260,7 +419,7 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
         
         houseServiceData.reminderDay = reminderDay;
         
-        console.log(`[createFromServiceRequestBundle] Variable service with dueDay: ${dueDay}, calculated reminderDay: ${reminderDay}`);
+
       }
     } else if (bundle.type === 'marketplace_onetime' && bundle.stagedRequest) {
       houseServiceData = {
@@ -283,21 +442,21 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
     if (bundle.metadata && typeof bundle.metadata === 'object') {
       if (bundle.type === 'fixed_recurring' && bundle.metadata.createDay && !houseServiceData.createDay) {
         houseServiceData.createDay = Number(bundle.metadata.createDay);
-        console.log(`[createFromServiceRequestBundle] Using createDay from metadata: ${houseServiceData.createDay}`);
+
       }
       
       if (bundle.type === 'variable_recurring' && bundle.metadata.reminderDay && !houseServiceData.reminderDay) {
         houseServiceData.reminderDay = Number(bundle.metadata.reminderDay);
-        console.log(`[createFromServiceRequestBundle] Using reminderDay from metadata: ${houseServiceData.reminderDay}`);
+
       }
     }
     
-    console.log('[createFromServiceRequestBundle] Final HouseService data:', JSON.stringify(houseServiceData, null, 2));
+
     
     // Create the HouseService
     const houseService = await HouseService.create(houseServiceData);
     
-    console.log(`[createFromServiceRequestBundle] HouseService created successfully for bundle ${serviceRequestBundleId} with ID:`, houseService.id);
+
     return houseService;
   } catch (error) {
     console.error('Error creating HouseService from ServiceRequestBundle:', error);

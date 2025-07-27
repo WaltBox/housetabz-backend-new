@@ -2,10 +2,11 @@
 const { Payment, Task, User, ServiceRequestBundle, StagedRequest, Charge, PaymentMethod, House, UserFinance, HouseFinance, Bill } = require('../models');
 const stripeService = require('../services/StripeService');
 const paymentStateService = require('../services/PaymentStateService');
-const hsiService = require('../services/hsiService');
+const hsiService = require('../services/houseRiskService');
 const { sequelize } = require('../models');
 const { createLogger } = require('../utils/logger');
 const financeService = require('../services/financeService');
+const urgentMessageService = require('../services/urgentMessageService');
 const logger = createLogger('payment-controller');
 
 // Calculate payment points based on charge due date
@@ -32,6 +33,9 @@ const paymentController = {
           code: 'MISSING_IDEMPOTENCY_KEY'
         });
       }
+
+      // Note: paymentMethodId is now optional - if not provided, 
+      // the StripeService will use the user's default payment method
 
       // Check for existing payment with this idempotency key
       const existingIdempotentPayment = await Payment.findOne({
@@ -127,6 +131,22 @@ const paymentController = {
 
         // Refresh the payment record.
         payment = await Payment.findByPk(payment.id);
+        
+        // 🔥 NEW: Update urgent messages in real-time after single payment
+        try {
+          if (task && task.chargeId) {
+            await urgentMessageService.updateUrgentMessagesForPayment({
+              chargeIds: [task.chargeId],
+              userId: userId,
+              paymentId: payment.id
+            });
+            console.log('✅ Urgent messages updated after single payment');
+          }
+        } catch (urgentError) {
+          console.error('❌ Error updating urgent messages after single payment:', urgentError);
+          // Don't fail the payment if urgent message update fails
+        }
+        
         return res.json({
           message: 'Payment processed successfully',
           payment,
@@ -163,267 +183,398 @@ const paymentController = {
     }
   },
 
-  async processBatchPayment(req, res) {
-    try {
-      const { chargeIds, paymentMethodId } = req.body;
-      const idempotencyKey = req.headers['idempotency-key'];
-      const userId = req.user.id;
-  
-      console.log("Payment request details:", {
-        userId,
-        chargeIds,
-        paymentMethodId,
-        idempotencyKey
-      });
+ // Fixed section of processBatchPayment method in paymentController.js
 
-      if (!idempotencyKey) {
-        return res.status(400).json({ 
-          error: 'Missing idempotency key',
-          code: 'MISSING_IDEMPOTENCY_KEY'
-        });
-      }
-  
-      // Check for existing payment with this idempotency key
-      const existingIdempotentPayment = await Payment.findOne({
-        where: { idempotencyKey }
+async processBatchPayment(req, res) {
+  try {
+    const { chargeIds, paymentMethodId } = req.body;
+    const idempotencyKey = req.headers['idempotency-key'];
+    const userId = req.user.id;
+
+    if (!idempotencyKey) {
+      return res.status(400).json({ 
+        error: 'Missing idempotency key',
+        code: 'MISSING_IDEMPOTENCY_KEY'
       });
-      
-      if (existingIdempotentPayment) {
-        // Authorization check for existing payment
-        if (existingIdempotentPayment.userId !== userId) {
-          return res.status(403).json({ error: 'Unauthorized access to payment' });
-        }
-        
-        return res.json({
-          message: 'Payment request already processed',
-          payment: existingIdempotentPayment
-        });
+    }
+
+    // Note: paymentMethodId is now optional - if not provided, 
+    // the StripeService will use the user's default payment method
+
+    // Check for existing payment with this idempotency key
+    const existingIdempotentPayment = await Payment.findOne({
+      where: { idempotencyKey }
+    });
+    
+    if (existingIdempotentPayment) {
+      if (existingIdempotentPayment.userId !== userId) {
+        return res.status(403).json({ error: 'Unauthorized access to payment' });
       }
-  
-      // Fetch and validate all charges for the user
-      const charges = await Charge.findAll({
-        where: { 
-          id: chargeIds,
-          userId,  // Already ensures user can only pay their own charges
-          status: 'unpaid'
-        }
+      
+      return res.json({
+        message: 'Payment request already processed',
+        payment: existingIdempotentPayment
       });
-      
-      if (charges.length !== chargeIds.length) {
-        return res.status(400).json({ 
-          error: 'One or more charges not found or not eligible for payment' 
-        });
-      }
-  
-      // Calculate total amount from the charges
-      const totalAmount = charges.reduce((sum, charge) => 
-        sum + Number(charge.amount), 0
-      );
-  
-      // Create Payment record first
-      let payment = await Payment.create({
+    }
+
+    // Fetch and validate all charges for the user
+    const charges = await Charge.findAll({
+      where: { 
+        id: chargeIds,
         userId,
+        status: 'unpaid'
+      }
+    });
+    
+    if (charges.length !== chargeIds.length) {
+      return res.status(400).json({ 
+        error: 'One or more charges not found or not eligible for payment' 
+      });
+    }
+
+    // Calculate total amount from the charges
+    const totalAmount = charges.reduce((sum, charge) => 
+      sum + Number(charge.amount), 0
+    );
+
+    // SEPARATE ADVANCED vs NON-ADVANCED CHARGES
+    const advancedCharges = charges.filter(charge => charge.advanced);
+    const regularCharges = charges.filter(charge => !charge.advanced);
+    const totalAdvancedAmount = advancedCharges.reduce((sum, charge) => sum + Number(charge.amount), 0);
+
+    console.log(`Processing payment for ${charges.length} charges:`);
+    console.log(`- Advanced charges: ${advancedCharges.length} ($${totalAdvancedAmount})`);
+    console.log(`- Regular charges: ${regularCharges.length} ($${totalAmount - totalAdvancedAmount})`);
+
+    // Create Payment record first
+    let payment = await Payment.create({
+      userId,
+      amount: totalAmount,
+      status: 'processing',
+      stripePaymentMethodId: String(paymentMethodId),
+      idempotencyKey,
+      taskId: null,
+      metadata: {
+        chargeIds,
+        type: 'batch_payment',
+        advancedCharges: advancedCharges.map(c => ({ id: c.id, amount: c.amount })),
+        regularCharges: regularCharges.map(c => ({ id: c.id, amount: c.amount }))
+      }
+    });
+    
+    // Start transaction for Stripe payment and updates
+    const transaction = await sequelize.transaction();
+    try {
+      const paymentIntent = await stripeService.processPayment({
         amount: totalAmount,
-        status: 'processing',
-        stripePaymentMethodId: String(paymentMethodId),
-        idempotencyKey,
-        taskId: null, // For batch payments, taskId is null
+        userId,
+        paymentMethodId,
         metadata: {
-          chargeIds,
+          paymentId: payment.id,
+          chargeIds: chargeIds.join(','),
           type: 'batch_payment'
         }
+      }, idempotencyKey);
+
+      await payment.update({
+        stripePaymentIntentId: paymentIntent.id,
+        status: 'completed',
+        paymentDate: new Date()
+      }, { transaction });
+
+      // Update each charge to mark it as paid
+      const now = new Date();
+      await Promise.all(charges.map(charge =>
+        charge.update({
+          status: 'paid',
+          stripePaymentIntentId: paymentIntent.id,
+          paymentMethodId: String(paymentMethodId),
+          // SET repaidAt for advanced charges
+          ...(charge.advanced && { repaidAt: now }),
+          metadata: {
+            ...charge.metadata,
+            paidDate: now.toISOString(),
+            pointsEarned: calculatePaymentPoints(charge),
+            // Track if this was an advance repayment
+            wasAdvancedRepayment: charge.advanced
+          }
+        }, { transaction })
+      ));
+      
+      // Update bill statuses
+      const billIds = [...new Set(charges.map(c => c.billId))];
+      for (const billId of billIds) {
+        const bill = await Bill.findByPk(billId, { transaction });
+        if (bill) {
+          await bill.updateStatus(transaction);
+        }
+      }
+
+      // Update HouseServiceLedger for each charge (existing logic remains the same)
+      for (const charge of charges) {
+        try {
+          const bill = await Bill.findByPk(charge.billId, { transaction });
+          if (!bill) {
+            console.log(`No bill found for charge ${charge.id}`);
+            continue;
+          }
+
+          const houseService = await sequelize.models.HouseService.findByPk(bill.houseService_id, { transaction });
+          if (!houseService) {
+            console.log(`No house service found for bill ${bill.id}`);
+            continue;
+          }
+
+          const ledger = await sequelize.models.HouseServiceLedger.findOne({
+            where: {
+              houseServiceId: houseService.id,
+              status: 'active'
+            },
+            order: [['createdAt', 'DESC']],
+            transaction
+          });
+          
+          if (!ledger) {
+            console.log(`No active ledger found for house service ${houseService.id}`);
+            continue;
+          }
+
+          const currentMetadata = ledger.metadata || {};
+          const fundedUsers = currentMetadata.fundedUsers || [];
+
+          const existingFundingIndex = fundedUsers.findIndex(fu => 
+            String(fu.userId) === String(charge.userId)
+          );
+
+          if (existingFundingIndex >= 0) {
+            fundedUsers[existingFundingIndex].amount = Number(fundedUsers[existingFundingIndex].amount) + Number(charge.amount);
+            fundedUsers[existingFundingIndex].lastUpdated = new Date();
+            fundedUsers[existingFundingIndex].charges = fundedUsers[existingFundingIndex].charges || [];
+            fundedUsers[existingFundingIndex].charges.push(charge.id);
+          } else {
+            fundedUsers.push({
+              userId: Number(charge.userId),
+              amount: Number(charge.amount),
+              timestamp: new Date(),
+              lastUpdated: new Date(),
+              charges: [charge.id]
+            });
+          }
+
+          const totalFundedFromMetadata = fundedUsers.reduce((sum, fu) => sum + Number(fu.amount), 0);
+
+          await ledger.update({
+            metadata: {
+              ...currentMetadata,
+              fundedUsers
+            },
+            funded: totalFundedFromMetadata
+          }, { transaction });
+                
+        } catch (error) {
+          console.error(`Error updating ledger for charge ${charge.id}:`, error);
+        }
+      }
+
+      // Calculate payment points for each charge
+      for (const charge of charges) {
+        const pointsEarned = calculatePaymentPoints(charge);
+        await charge.update({
+          metadata: {
+            ...charge.metadata,
+            pointsEarned,
+            paidDate: new Date()
+          }
+        }, { transaction });
+      }
+
+      // Get the user and their finance record
+      const user = await User.findByPk(userId, { 
+        include: [{ model: UserFinance, as: 'finance' }],
+        transaction 
       });
       
-      // Start a new transaction for processing the Stripe payment and updating charges.
-      const transaction = await sequelize.transaction();
-      try {
-        const paymentIntent = await stripeService.processPayment({
-          amount: totalAmount,
-          userId,
-          paymentMethodId,
-          metadata: {
-            paymentId: payment.id,
-            chargeIds: chargeIds.join(','),
-            type: 'batch_payment'
-          }
-        }, idempotencyKey);
-  
-        await payment.update({
-          stripePaymentIntentId: paymentIntent.id,
-          status: 'completed',
-          paymentDate: new Date()
-        }, { transaction });
-  
-        // Update each charge to mark it as paid
-        await Promise.all(charges.map(charge =>
-          charge.update({
-            status: 'paid',
-            stripePaymentIntentId: paymentIntent.id,
-            paymentMethodId: String(paymentMethodId)
-          }, { transaction })
-        ));
-        
-        
-        const billIds = [...new Set(charges.map(c => c.billId))];
-        for (const billId of billIds) {
-          const bill = await Bill.findByPk(billId, { transaction });
-          if (bill) {
-            await bill.updateStatus(transaction); // Pass the transaction here
-          }
-        }
-
-        // Update HouseServiceLedger for each charge - FIXED VERSION
-        for (const charge of charges) {
-          try {
-            // Get the bill for this charge
-            const bill = await Bill.findByPk(charge.billId, { transaction });
-            if (!bill) {
-              console.log(`No bill found for charge ${charge.id}, skipping ledger update`);
-              continue;
-            }
-
-            // FIXED: Directly query for the HouseService using the bill's houseService_id
-            const houseService = await sequelize.models.HouseService.findByPk(bill.houseService_id, { transaction });
-            if (!houseService) {
-              console.log(`No houseService found for bill ${bill.id}, skipping ledger update`);
-              continue;
-            }
-
-            // FIXED: Directly query for the active ledger
-            const ledger = await sequelize.models.HouseServiceLedger.findOne({
-              where: {
-                houseServiceId: houseService.id,
-                status: 'active'
-              },
-              order: [['createdAt', 'DESC']],
-              transaction
-            });
-            
-            if (!ledger) {
-              console.log(`No active ledger found for houseService ${houseService.id}, skipping ledger update`);
-              continue;
-            }
-
-            // Fund ledger with the charge amount
-            await ledger.increment('funded', {
-              by: Number(charge.amount),
-              transaction
-            });
-            
-            // Track user contribution in metadata, but skip updating funded again
-            await ledger.addContribution(charge.userId, charge.amount, charge.id, transaction, true);
-            console.log(`💰 CHARGE ${charge.id}: contribution recorded in ledger ${ledger.id}`);
-          } catch (error) {
-            console.error(`Error updating ledger for charge ${charge.id}:`, error);
-            // Continue processing other charges even if one fails
-          }
-        }
-  
-        // For each charge, calculate payment points 
-        for (const charge of charges) {
-          const pointsEarned = calculatePaymentPoints(charge);
-          console.log(`DEBUG: charge ${charge.id} pointsEarned =`, pointsEarned);
-          // Update the charge metadata
-          await charge.update({
-            metadata: {
-              ...charge.metadata,
-              pointsEarned,
-              paidDate: new Date()
-            }
+      if (user) {
+        let userFinance = user.finance;
+        if (!userFinance) {
+          userFinance = await UserFinance.create({
+            userId,
+            balance: user.balance || 0,
+            credit: user.credit || 0,
+            points: user.points || 0
           }, { transaction });
         }
-
-        // Get the user and their finance record
-        const user = await User.findByPk(userId, { 
-          include: [{ model: UserFinance, as: 'finance' }],
-          transaction 
-        });
         
-        if (user) {
-          // Get or create the user finance record
-          let userFinance = user.finance;
-          if (!userFinance) {
-            // If the user doesn't have a finance record yet, create one
-            userFinance = await UserFinance.create({
-              userId,
-              balance: user.balance || 0, // Use existing balance if available
-              credit: user.credit || 0,
-              points: user.points || 0
-            }, { transaction });
-          }
-          
-          // FIXED: Use processUserPayment which handles BOTH user and house balance updates
-          // This replaces the duplicate house balance update that was causing the 2x deduction
+        // Process user payment - split regular charges vs advance repayments
+        const regularChargesAmount = regularCharges.reduce((sum, charge) => sum + parseFloat(charge.amount), 0);
+        const advancedChargesAmount = advancedCharges.reduce((sum, charge) => sum + parseFloat(charge.amount), 0);
+        
+        // Process regular charges (reduces house balance)
+        if (regularChargesAmount > 0) {
           await financeService.processUserPayment(
             userId,
-            totalAmount,
-            'Batch payment for charges',
+            regularChargesAmount,
+            'Batch payment for regular charges',
             transaction,
             {
               paymentId: payment.id,
-              chargeIds: chargeIds.join(','),
-              stripePaymentIntentId: paymentIntent.id
+              chargeIds: regularCharges.map(c => c.id).join(','),
+              stripePaymentIntentId: paymentIntent.id,
+              type: 'regular_charges'
             }
           );
+        }
+        
+        // Process advance repayments separately (also reduces house balance)
+        if (advancedChargesAmount > 0) {
+          await financeService.processUserPayment(
+            userId,
+            advancedChargesAmount,
+            'Batch payment for advance repayments',
+            transaction,
+            {
+              paymentId: payment.id,
+              chargeIds: advancedCharges.map(c => c.id).join(','),
+              stripePaymentIntentId: paymentIntent.id,
+              type: 'advance_repayments'
+            }
+          );
+        }
+        
+        // Add points
+        const totalPointsEarned = charges.reduce((sum, charge) => 
+          sum + calculatePaymentPoints(charge), 0);
+        userFinance.points += totalPointsEarned;
+        await userFinance.save({ transaction });
+
+        // CREATE ADVANCE_REPAYMENT TRANSACTIONS for advanced charges
+        if (advancedCharges.length > 0) {
+          console.log(`Creating ADVANCE_REPAYMENT transactions for ${advancedCharges.length} charges`);
           
-          // Update points in finance record
-          const totalPointsEarned = charges.reduce((sum, charge) => 
-            sum + calculatePaymentPoints(charge), 0);
-          userFinance.points += totalPointsEarned;
-          await userFinance.save({ transaction });
-  
-          // Note: House balance is automatically updated by processUserPayment above
-          // No need for a separate updateHouseBalance call
+          // Get house info for the transaction
+          const firstCharge = advancedCharges[0];
+          const bill = await Bill.findByPk(firstCharge.billId, { transaction });
+          
+          if (bill && bill.houseId) {
+            // Get current house balance (already updated by processUserPayment above)
+            const { HouseFinance } = require('../models');
+            let houseFinance = await HouseFinance.findOne({ 
+              where: { houseId: bill.houseId }, 
+              transaction 
+            });
+            
+            if (!houseFinance) {
+              houseFinance = await HouseFinance.create({
+                houseId: bill.houseId,
+                balance: 0,
+                ledger: 0
+              }, { transaction });
+            }
+            
+            // Calculate progressive balance changes for each charge
+            let runningBalance = parseFloat(houseFinance.balance) + advancedChargesAmount;
+            
+            // Create individual ADVANCE_REPAYMENT transaction for each advanced charge
+            for (const charge of advancedCharges) {
+              const repaymentAmount = parseFloat(charge.amount);
+              const balanceBefore = runningBalance;
+              const balanceAfter = runningBalance - repaymentAmount;
+              
+              // Create ADVANCE_REPAYMENT transaction with proper balance tracking
+              await sequelize.models.Transaction.create({
+                houseId: bill.houseId,
+                userId: userId,
+                chargeId: charge.id,
+                type: 'ADVANCE_REPAYMENT',
+                amount: repaymentAmount,
+                description: `User ${userId} repaid advanced charge ${charge.id}`,
+                balanceBefore: balanceBefore.toFixed(2),
+                balanceAfter: balanceAfter.toFixed(2),
+                status: 'COMPLETED',
+                metadata: {
+                  originalAdvanceDate: charge.advancedAt,
+                  repaymentDate: now.toISOString(),
+                  paymentId: payment.id,
+                  stripePaymentIntentId: paymentIntent.id
+                }
+              }, { transaction });
+              
+              console.log(`✓ Created ADVANCE_REPAYMENT transaction for charge ${charge.id}: $${repaymentAmount} (Balance: ${balanceBefore.toFixed(2)} → ${balanceAfter.toFixed(2)})`);
+              
+              // Update running balance for next iteration
+              runningBalance = balanceAfter;
+            }
+          }
         }
-  
-        await transaction.commit();
-        payment = await Payment.findByPk(payment.id);
-        return res.json({
-          message: 'Batch payment processed successfully',
-          payment,
-          updatedCharges: charges
+      }
+
+      await transaction.commit();
+      payment = await Payment.findByPk(payment.id);
+      
+      // 🔥 NEW: Update urgent messages in real-time after payment
+      try {
+        await urgentMessageService.updateUrgentMessagesForPayment({
+          chargeIds: chargeIds,
+          userId: userId,
+          paymentId: payment.id
         });
-      } catch (stripeError) {
-        await transaction.rollback();
-        // Update the Payment record in a new transaction to mark it as failed.
-        const updateTransaction = await sequelize.transaction();
-        try {
-          const truncatedMessage = stripeError.message && stripeError.message.length > 250 
-            ? stripeError.message.substring(0, 250) + '...'
-            : stripeError.message;
-          await payment.update({
-            status: 'failed',
-            errorMessage: truncatedMessage,
-            retryCount: payment.retryCount + 1
-          }, { transaction: updateTransaction });
-          await updateTransaction.commit();
-        } catch (updateError) {
-          await updateTransaction.rollback();
-          logger.error('Error updating failed batch payment:', updateError);
+        console.log('✅ Urgent messages updated after payment');
+      } catch (urgentError) {
+        console.error('❌ Error updating urgent messages after payment:', urgentError);
+        // Don't fail the payment if urgent message update fails
+      }
+      
+      return res.json({
+        message: 'Batch payment processed successfully',
+        payment,
+        updatedCharges: charges,
+        summary: {
+          totalAmount,
+          advancedChargesRepaid: advancedCharges.length,
+          advancedAmountRepaid: totalAdvancedAmount,
+          regularChargesPaid: regularCharges.length
         }
-        return res.status(400).json({
-          error: 'Payment processing failed',
-          details: stripeError.message,
-          code: stripeError.code
-        });
-      }
-    } catch (error) {
-      // Enhanced error logging
-      console.error('Error processing batch payment:', error);
-      console.error('Error stack:', error.stack);
+      });
       
-      // Log specific details that might help debug
-      if (error.response) {
-        console.error('Response data:', error.response.data);
+    } catch (stripeError) {
+      await transaction.rollback();
+      // Handle stripe error (existing logic)
+      const updateTransaction = await sequelize.transaction();
+      try {
+        const truncatedMessage = stripeError.message && stripeError.message.length > 250 
+          ? stripeError.message.substring(0, 250) + '...'
+          : stripeError.message;
+        await payment.update({
+          status: 'failed',
+          errorMessage: truncatedMessage,
+          retryCount: payment.retryCount + 1
+        }, { transaction: updateTransaction });
+        await updateTransaction.commit();
+      } catch (updateError) {
+        await updateTransaction.rollback();
+        logger.error('Error updating failed batch payment:', updateError);
       }
-      
-      return res.status(500).json({ 
-        error: 'Failed to process batch payment',
-        details: error.message,
-        stack: process.env.NODE_ENV === 'development_local' ? error.stack : undefined
+      return res.status(400).json({
+        error: 'Payment processing failed',
+        details: stripeError.message,
+        code: stripeError.code
       });
     }
-  },
+  } catch (error) {
+    console.error('Error processing batch payment:', error);
+    console.error('Error stack:', error.stack);
+    
+    if (error.response) {
+      console.error('Response data:', error.response.data);
+    }
+    
+    return res.status(500).json({ 
+      error: 'Failed to process batch payment',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development_local' ? error.stack : undefined
+    });
+  }
+},
   
   async getPaymentStatus(req, res) {
     try {

@@ -6,7 +6,7 @@ const webhookService = require('../services/webhookService');
 // Helper function to create a HouseService from a bundle
 async function createHouseServiceFromBundle(bundleId, sequelize) {
   try {
-    console.log('Creating HouseService for bundle:', bundleId);
+  
     
     // Load the full bundle with its associations
     const bundle = await sequelize.models.ServiceRequestBundle.findByPk(bundleId, {
@@ -28,7 +28,7 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
     });
     
     if (existingService) {
-      console.log(`HouseService already exists for bundle ${bundleId}`);
+     
       return existingService;
     }
     
@@ -38,7 +38,7 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
     // If bundle has type field with value, use it
     if (bundle.type) {
       serviceType = bundle.type;
-      console.log(`Using service type from bundle: ${serviceType}`);
+     
     } 
     // Otherwise, infer type from associated request
     else if (bundle.takeOverRequestId) {
@@ -50,11 +50,11 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       
       if (takeOverRequest) {
         serviceType = takeOverRequest.serviceType === 'fixed' ? 'fixed_recurring' : 'variable_recurring';
-        console.log(`Inferred service type from TakeOverRequest: ${serviceType}`);
+       
       }
     } else if (bundle.stagedRequestId || bundle.virtualCardRequestId) {
       serviceType = 'marketplace_onetime';
-      console.log(`Inferred service type as marketplace_onetime`);
+ 
     }
     
     // Create the base HouseService data
@@ -79,7 +79,7 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       }
       
       if (takeOverRequest) {
-        console.log('Adding TakeOverRequest data:', takeOverRequest.serviceName);
+       
         
         // Get due day from the takeover request
         const dueDay = Number(takeOverRequest.dueDate);
@@ -95,13 +95,13 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
             let createDay = (dueDay + 16) % 31;
             if (createDay === 0) createDay = 31;
             houseServiceData.createDay = createDay;
-            console.log(`Calculated createDay: ${createDay} from dueDay: ${dueDay}`);
+            
           } else { // variable_recurring
             // Calculate reminderDay to be approximately 7 days before due date
             let reminderDay = (dueDay - 7);
             if (reminderDay <= 0) reminderDay = reminderDay + 30;
             houseServiceData.reminderDay = reminderDay;
-            console.log(`Calculated reminderDay: ${reminderDay} from dueDay: ${dueDay}`);
+        
           }
         }
         
@@ -125,7 +125,7 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       }
       
       if (stagedRequest) {
-        console.log('Adding StagedRequest data:', stagedRequest.serviceName);
+       
         houseServiceData.name = stagedRequest.serviceName;
         houseServiceData.metadata = {
           partnerName: stagedRequest.partnerName,
@@ -145,7 +145,7 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
       }
       
       if (virtualCardRequest) {
-        console.log('Adding VirtualCardRequest data:', virtualCardRequest.serviceName);
+        
         houseServiceData.name = virtualCardRequest.serviceName;
         houseServiceData.metadata = {
           virtualCardId: virtualCardRequest.virtualCardId,
@@ -162,23 +162,23 @@ async function createHouseServiceFromBundle(bundleId, sequelize) {
     
     // Check if metadata has createDay or reminderDay (from the takeOverRequestController)
     if (bundle.metadata && typeof bundle.metadata === 'object') {
-      console.log('Bundle metadata:', bundle.metadata);
+    
       if (bundle.metadata.createDay && !houseServiceData.createDay && serviceType === 'fixed_recurring') {
         houseServiceData.createDay = Number(bundle.metadata.createDay);
-        console.log(`Using createDay from metadata: ${houseServiceData.createDay}`);
+        
       }
       if (bundle.metadata.reminderDay && !houseServiceData.reminderDay && serviceType === 'variable_recurring') {
         houseServiceData.reminderDay = Number(bundle.metadata.reminderDay);
-        console.log(`Using reminderDay from metadata: ${houseServiceData.reminderDay}`);
+     
       }
     }
     
-    console.log('Final HouseService data:', JSON.stringify(houseServiceData, null, 2));
+   
     
     // Create the HouseService
     const houseService = await sequelize.models.HouseService.create(houseServiceData);
     
-    console.log(`HouseService created successfully with ID ${houseService.id}`);
+   
     return houseService;
   } catch (error) {
     console.error('Error creating HouseService from ServiceRequestBundle:', error);
@@ -322,16 +322,7 @@ module.exports = (sequelize, DataTypes) => {
       const requiredPayment = Number(request.requiredUpfrontPayment || 0);
       const allPaymentsMet = totalPaid >= requiredPayment;
   
-      console.log('Status check:', {
-        bundleId: this.id,
-        totalPaid,
-        requiredPayment,
-        allTasksComplete,
-        allTasksAccepted,
-        allPaymentsMet,
-        taskCount: tasks.length,
-        requestType: stagedRequest ? 'staged' : virtualCardRequest ? 'virtual_card' : 'take_over'
-      });
+   
   
       // Update the totalPaidUpfront if there is a discrepancy
       if (Number(this.totalPaidUpfront) !== totalPaid) {
@@ -367,8 +358,7 @@ module.exports = (sequelize, DataTypes) => {
             transaction.afterCommit(async () => {
               try {
                 // Send request.authorized webhook with correct format
-                console.log(`Sending request.authorized webhook for houseTabzAgreementId: ${houseService.houseTabzAgreementId}`);
-                
+           
                 await webhookService.sendWebhook(
                   stagedRequest.partnerId,
                   'request.authorized',
@@ -396,7 +386,7 @@ module.exports = (sequelize, DataTypes) => {
             
             // Create the virtual card
             const card = await stripeHouseService.createVirtualCard(virtualCardRequest.id);
-            console.log('Virtual card created:', card);
+          
           } catch (error) {
             console.error('Error creating virtual card:', error);
             throw error;
@@ -414,7 +404,7 @@ module.exports = (sequelize, DataTypes) => {
           if (houseService) {
             // Update HouseService status to active
             updates.push(houseService.update({ status: 'active' }, { transaction }));
-            console.log(`Updated HouseService ID ${houseService.id} status to active for takeOverRequest`);
+
           } else {
             console.error(`HouseService not found for TakeOverRequest bundle ${this.id}`);
           }
@@ -433,7 +423,7 @@ module.exports = (sequelize, DataTypes) => {
             
             if (existingHouseService) {
               await existingHouseService.update({ status: 'active' }, { transaction });
-              console.log(`Updated HouseService ID ${existingHouseService.id} status to active (fallback path)`);
+
             }
           } catch (error) {
             console.error('Error updating HouseService status:', error);

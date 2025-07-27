@@ -1,6 +1,6 @@
 // src/controllers/reminderController.js
 
-const { User, ReminderLog, Notification, sequelize } = require('../models');
+const { User, ReminderLog, Notification, Bill, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { sendPushNotification } = require('../services/pushNotificationService');
 const { ONE_DAY_MS } = require('../utils/constants');
@@ -25,7 +25,7 @@ exports.checkReminderStatus = async (req, res, next) => {
     }
     
     // Use raw query to check if sender has sent a reminder to this recipient in the last 24 hours
-    const [recentReminders] = await sequelize.query(`
+    const recentReminders = await sequelize.query(`
       SELECT * FROM "ReminderLogs" 
       WHERE sender_id = :senderId 
       AND recipient_id = :recipientId 
@@ -66,18 +66,23 @@ exports.sendReminder = async (req, res, next) => {
       return res.status(400).json({ error: 'Message and billId are required' });
     }
     
-    // Verify users exist
-    const [sender, recipient] = await Promise.all([
+    // Verify users exist and bill exists
+    const [sender, recipient, bill] = await Promise.all([
       User.findByPk(senderId),
-      User.findByPk(userId)
+      User.findByPk(userId),
+      Bill.findByPk(billId)
     ]);
     
     if (!sender || !recipient) {
       return res.status(404).json({ error: 'User not found' });
     }
     
+    if (!bill) {
+      return res.status(404).json({ error: 'Bill not found' });
+    }
+    
     // Use raw query to check if sender has sent a reminder to this recipient in the last 24 hours
-    const [recentReminders] = await sequelize.query(`
+    const recentReminders = await sequelize.query(`
       SELECT * FROM "ReminderLogs" 
       WHERE sender_id = :senderId 
       AND recipient_id = :recipientId 
@@ -136,7 +141,7 @@ exports.sendReminder = async (req, res, next) => {
           }
         }
       );
-      console.log('Push notification sent successfully');
+     
     } catch (pushError) {
       console.error('Error sending push notification:', pushError);
       // Continue execution - don't let push notification failure affect the API response
@@ -148,6 +153,65 @@ exports.sendReminder = async (req, res, next) => {
     });
   } catch (err) {
     console.error('Error in sendReminder:', err);
+    next(err);
+  }
+};
+
+/**
+ * Get reminder logs for a user
+ * GET /api/users/:userId/reminder-logs
+ */
+exports.getReminderLogs = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 20, page = 1 } = req.query;
+    
+    // Add authorization check
+    if (req.user.id != userId) {
+      return res.status(403).json({ error: 'Unauthorized access to reminder logs' });
+    }
+    
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get reminder logs where this user was the recipient
+    const reminderLogs = await ReminderLog.findAll({
+      where: { recipientId: userId },
+      include: [
+        {
+          model: User,
+          as: 'sender',
+          attributes: ['id', 'username']
+        },
+        {
+          model: Bill,
+          as: 'bill',
+          attributes: ['id', 'name', 'amount', 'dueDate']
+        }
+      ],
+      order: [['created_at', 'DESC']],
+      limit: parseInt(limit),
+      offset: offset
+    });
+    
+    // Get total count for pagination
+    const totalCount = await ReminderLog.count({
+      where: { recipientId: userId }
+    });
+    
+    const totalPages = Math.ceil(totalCount / parseInt(limit));
+    
+    res.json({
+      reminderLogs,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        hasNextPage: parseInt(page) < totalPages,
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+  } catch (err) {
+    console.error('Error in getReminderLogs:', err);
     next(err);
   }
 };

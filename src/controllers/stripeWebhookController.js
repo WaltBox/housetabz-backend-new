@@ -2,6 +2,7 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { Payment, Charge, Task } = require('../models');
 const { createLogger } = require('../utils/logger');
+const urgentMessageService = require('../services/urgentMessageService');
 const logger = createLogger('stripe-webhook');
 
 exports.handleWebhook = async (req, res) => {
@@ -49,11 +50,39 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       { where: { stripePaymentIntentId: paymentIntent.id, status: 'processing' } }
     );
     
-    // Update any charges with this intent ID
-    await Charge.update(
+    // Update any charges with this intent ID and get the updated charges
+    const updatedCharges = await Charge.update(
       { status: 'paid' },
-      { where: { stripePaymentIntentId: paymentIntent.id, status: 'processing' } }
+      { 
+        where: { stripePaymentIntentId: paymentIntent.id, status: 'processing' },
+        returning: true
+      }
     );
+    
+    // 🔥 NEW: Update urgent messages after webhook payment confirmation
+    try {
+      // Get the payment that was just completed
+      const payment = await Payment.findOne({
+        where: { stripePaymentIntentId: paymentIntent.id }
+      });
+      
+      if (payment && payment.metadata && payment.metadata.chargeIds) {
+        const chargeIds = Array.isArray(payment.metadata.chargeIds) 
+          ? payment.metadata.chargeIds 
+          : payment.metadata.chargeIds.split(',').map(id => parseInt(id));
+        
+        await urgentMessageService.updateUrgentMessagesForPayment({
+          chargeIds: chargeIds,
+          userId: payment.userId,
+          paymentId: payment.id
+        });
+        
+        logger.info(`✅ Urgent messages updated for payment ${payment.id} via webhook`);
+      }
+    } catch (urgentError) {
+      logger.error('❌ Error updating urgent messages via webhook:', urgentError);
+      // Don't fail the webhook if urgent message update fails
+    }
     
     // Handle any additional business logic
   } catch (error) {

@@ -37,13 +37,13 @@ const partnerApiLimiter = rateLimit({
 });
 // Add this middleware function to your file
 const blockPaths = (req, res, next) => {
-    const blockedPaths = ['/admin', '/config', '/default.html', '/info_deviceStatus.html'];
-    if (blockedPaths.includes(req.path)) {
-      console.log(`Blocked access to path: ${req.path} from IP: ${req.ip}`);
-      return res.status(403).json({ message: 'Access denied.' });
-    }
-    next();
-  };
+  const blockedPaths = ['/admin.php', '/config', '/default.html', '/info_deviceStatus.html']; // 👈 Changed /admin to /admin.php
+  if (blockedPaths.includes(req.path)) {
+
+    return res.status(403).json({ message: 'Access denied.' });
+  }
+  next();
+};
   
   // Update the exports to include blockPaths
   module.exports = {

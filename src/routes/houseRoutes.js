@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const houseController = require('../controllers/houseController');
-
+const { catchAsync } = require('../middleware/errorHandler');
+const { authenticateUser } = require('../middleware/auth/userAuth');
+const { requireOnboardingForHouse } = require('../middleware/onboardingProtection');
 /**
  * @swagger
  * tags:
@@ -81,6 +83,11 @@ router.post('/', houseController.createHouse);
  *                     example: 1
  */
 router.get('/', houseController.getAllHouses);
+
+router.get('/:houseId/tabs-data', authenticateUser, requireOnboardingForHouse, catchAsync(houseController.getHouseWithTabsData));
+
+// Get advance summary for a house
+router.get('/:id/advance-summary', catchAsync(houseController.getAdvanceSummary));
 
 /**
  * @swagger

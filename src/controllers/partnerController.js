@@ -224,7 +224,7 @@ const partnerController = {
   async getCurrentPartner(req, res) {
     try {
       const partnerId = req.current_partner.id;
-      console.log('Current Partner ID:', partnerId);
+    
       
       // First get the partner
       const partner = await Partner.findByPk(partnerId);
@@ -250,7 +250,7 @@ const partnerController = {
         limit: 20
       });
   
-      console.log('Found webhook logs:', webhookLogs.length);
+   
   
       // Calculate webhook stats
       const webhookStats = {
@@ -275,7 +275,6 @@ const partnerController = {
         newAccounts: []
       };
   
-      console.log('Sending response with webhook logs count:', webhookLogs.length);
   
       res.json({ partner: responseData });
     } catch (error) {

@@ -6,22 +6,21 @@ exports.checkHouseServiceStatus = async (req, res) => {
   try {
     const { partnerId, houseId } = req.body;
     
-    console.log('🔍 SDK Controller - Checking status for:', { partnerId, houseId });
+ 
     
     // Validate inputs
     if (!partnerId || !houseId) {
-      console.log('❌ Missing required fields:', { partnerId, houseId });
+
       return res.status(400).json({ error: 'partnerId and houseId required' });
     }
     
     // Check if house service exists
-    console.log('🔍 Searching for existing service...');
+  
     const existingService = await HouseService.findOne({
       where: { partnerId, houseId },
       include: [{ model: Partner, as: 'partner' }]
     });
-    
-    console.log('🔍 Query result:', existingService ? 'Service found' : 'No service found');
+
     
     if (existingService) {
       const result = {
@@ -32,11 +31,10 @@ exports.checkHouseServiceStatus = async (req, res) => {
         partnerName: existingService.partner.name
       };
       
-      console.log('✅ Returning existing service:', result);
+    
       return res.json(result);
     }
     
-    console.log('✅ No existing service, returning exists: false');
     res.json({ exists: false });
   } catch (error) {
     console.error('❌ SDK Controller Error:', error);
@@ -49,32 +47,27 @@ exports.resendWebhook = async (req, res) => {
   try {
     const { agreementId, transactionId } = req.body;
     
-    console.log('🔄 Resending webhook for:', { agreementId, transactionId });
+
     
     // Validate inputs
     if (!agreementId || !transactionId) {
-      console.log('❌ Missing required fields:', { agreementId, transactionId });
+
       return res.status(400).json({ error: 'agreementId and transactionId required' });
     }
     
     // Find existing HouseService
-    console.log('🔍 Finding HouseService by agreementId...');
+
     const existingService = await HouseService.findOne({
       where: { houseTabzAgreementId: agreementId },
       include: [{ model: Partner, as: 'partner' }]
     });
     
     if (!existingService) {
-      console.log('❌ HouseService not found for agreementId:', agreementId);
+     
       return res.status(404).json({ error: 'HouseService not found' });
     }
     
-    console.log('✅ Found HouseService:', {
-      id: existingService.id,
-      name: existingService.name,
-      status: existingService.status,
-      partnerId: existingService.partnerId
-    });
+
     
     // Prepare webhook payload using existing service data
     const webhookPayload = {
@@ -88,8 +81,7 @@ exports.resendWebhook = async (req, res) => {
       status: 'pending', // Always send as pending for resend
       timestamp: new Date().toISOString()
     };
-    
-    console.log('📤 Sending webhook with payload:', webhookPayload);
+  
     
     // Send webhook to partner
     const webhookResult = await webhookService.sendWebhook(
@@ -98,7 +90,6 @@ exports.resendWebhook = async (req, res) => {
       webhookPayload
     );
     
-    console.log('✅ Webhook sent successfully:', webhookResult);
     
     res.json({ 
       success: true, 

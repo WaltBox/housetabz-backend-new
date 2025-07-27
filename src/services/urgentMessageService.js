@@ -1,10 +1,153 @@
-// src/services/urgentMessageService.js
+// src/services/urgentMessageService.js - FIXED VERSION
 const { Op } = require('sequelize');
 const { Charge, Bill, House, User, UrgentMessage, sequelize } = require('../models');
+
+// Message type constants
+const MESSAGE_TYPES = {
+  USER_MULTI_FUNDING: 'user_multi_funding',
+  CHARGE_FUNDING: 'charge_funding',
+  HOUSE_MULTI_ROOMMATE_FUNDING: 'house_multi_roommate_funding',
+  BILL_MULTI_FUNDING: 'bill_multi_funding',
+  ROOMMATE_MULTI_FUNDING: 'roommate_multi_funding',
+  SINGLE_FUNDING: 'single_funding'
+};
+
+const ROOMMATE_MESSAGE_TYPES = [
+  MESSAGE_TYPES.HOUSE_MULTI_ROOMMATE_FUNDING,
+  MESSAGE_TYPES.BILL_MULTI_FUNDING,
+  MESSAGE_TYPES.ROOMMATE_MULTI_FUNDING,
+  MESSAGE_TYPES.SINGLE_FUNDING
+];
+
+const USER_MESSAGE_TYPES = [
+  MESSAGE_TYPES.USER_MULTI_FUNDING,
+  MESSAGE_TYPES.CHARGE_FUNDING
+];
+
+// NEW: Real-time urgent message update when payments are made
+async function updateUrgentMessagesForPayment(paymentData) {
+  try {
+    console.log('Updating urgent messages for payment:', paymentData);
+    
+    // Get the charges that were paid
+    const chargeIds = paymentData.chargeIds || [];
+    if (chargeIds.length === 0) return;
+    
+    // Get affected charges with user and house info
+    const affectedCharges = await Charge.findAll({
+      where: { id: { [Op.in]: chargeIds } },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          attributes: ['id', 'username', 'houseId']
+        },
+        {
+          model: Bill,
+          attributes: ['id', 'name', 'houseId']
+        }
+      ]
+    });
+    
+    if (affectedCharges.length === 0) return;
+    
+    // Get unique house IDs that need message updates
+    const houseIds = [...new Set(affectedCharges.map(charge => charge.User.houseId))];
+    
+    // Update messages for each affected house
+    for (const houseId of houseIds) {
+      await refreshUrgentMessagesForHouse(houseId);
+    }
+    
+    console.log(`Updated urgent messages for ${houseIds.length} houses after payment`);
+  } catch (error) {
+    console.error('Error updating urgent messages for payment:', error);
+  }
+}
+
+// NEW: Real-time urgent message update for a specific house
+async function refreshUrgentMessagesForHouse(houseId) {
+  try {
+    console.log(`Refreshing urgent messages for house ${houseId}`);
+    
+    // Get current unpaid charges for this house
+    const unpaidCharges = await Charge.findAll({
+      where: { status: { [Op.ne]: 'paid' } },
+      include: [
+        {
+          model: User,
+          as: 'User',
+          where: { houseId: houseId },
+          attributes: ['id', 'username', 'houseId']
+        },
+        {
+          model: Bill,
+          attributes: ['id', 'name', 'houseId', 'dueDate']
+        }
+      ]
+    });
+    
+    // Analyze house issues with current data
+    const houseData = await analyzeHouseIssues([{ houseId: houseId, charges: unpaidCharges }]);
+    
+    if (houseData.length > 0) {
+      await refreshMessagesForHouse(houseData[0]);
+    } else {
+      // No issues - resolve all messages for this house
+      await resolveAllMessagesForHouse(houseId);
+    }
+    
+    console.log(`Completed urgent message refresh for house ${houseId}`);
+  } catch (error) {
+    console.error(`Error refreshing urgent messages for house ${houseId}:`, error);
+  }
+}
+
+// NEW: Resolve all urgent messages for a house (when all bills are paid)
+async function resolveAllMessagesForHouse(houseId) {
+  try {
+    const updatedCount = await UrgentMessage.update(
+      { 
+        isResolved: true,
+        body: sequelize.fn('CONCAT', sequelize.col('body'), ' (RESOLVED - All bills paid)')
+      },
+      { 
+        where: { 
+          houseId: houseId, 
+          isResolved: false 
+        } 
+      }
+    );
+    
+    console.log(`Resolved ${updatedCount[0]} urgent messages for house ${houseId} - all bills paid`);
+  } catch (error) {
+    console.error(`Error resolving messages for house ${houseId}:`, error);
+  }
+}
+
+// NEW: Update urgent messages when a specific user makes a payment
+async function updateUrgentMessagesForUser(userId) {
+  try {
+    console.log(`Updating urgent messages for user ${userId}`);
+    
+    // Get user's house
+    const user = await User.findByPk(userId, { attributes: ['id', 'houseId'] });
+    if (!user || !user.houseId) return;
+    
+    // Refresh messages for the user's house
+    await refreshUrgentMessagesForHouse(user.houseId);
+    
+    console.log(`Updated urgent messages for user ${userId} in house ${user.houseId}`);
+  } catch (error) {
+    console.error(`Error updating urgent messages for user ${userId}:`, error);
+  }
+}
 
 // Main function to generate and manage all urgent messages
 async function refreshUrgentMessages() {
   await sequelize.transaction(async trx => {
+    console.log('Starting urgent message refresh...');
+    
     // 1. Get current data - all unpaid charges
     const overdueCharges = await findOverdueCharges();
     
@@ -16,8 +159,10 @@ async function refreshUrgentMessages() {
       await refreshMessagesForHouse(house);
     }
     
-    // 4. Clean up any resolved messages (no longer relevant)
-    await removeResolvedMessages();
+    // 4. Clean up any resolved messages (scenario-based, not charge-based)
+    await removeActuallyResolvedMessages();
+    
+    console.log('Urgent message refresh completed');
   });
 }
 
@@ -35,6 +180,7 @@ async function findOverdueCharges() {
       },
       {
         model: User,
+        as: 'User',
         attributes: ['id', 'username', 'email']
       }
     ]
@@ -119,55 +265,47 @@ async function analyzeHouseIssues(overdueCharges) {
 
 // Core function that refreshes all messages for a house
 async function refreshMessagesForHouse(house) {
+  console.log(`Refreshing messages for house ${house.id}`);
+  
   // Get all current messages for this house to track what needs updating/removing
   const currentMessages = await UrgentMessage.findAll({
-    where: { houseId: house.id }
+    where: { houseId: house.id, isResolved: false }
   });
-  
-  // Track which messages we've updated
-  const updatedMessageIds = new Set();
   
   // Process all users in the house
   const allUsers = Object.values(house.users);
   const billsWithIssues = Object.values(house.bills);
   
-  // 1. Process users with unpaid charges
-  const usersWithIssues = allUsers.filter(u => u.unpaidCharges.length > 0);
-  
-  for (const user of usersWithIssues) {
-    // Handle user's own unpaid charges
-    await processUserOwnCharges(user, house, billsWithIssues, currentMessages, updatedMessageIds);
-    
-    // Handle messages about roommates' unpaid charges
-    await processUserRoommateNotifications(user, house, usersWithIssues, currentMessages, updatedMessageIds);
+  // Process each user's messages
+  for (const user of allUsers) {
+    await processUserMessages(user, house, billsWithIssues, currentMessages);
   }
   
-  // 2. Process users with no unpaid charges (they only get roommate notifications)
-  const usersWithNoIssues = allUsers.filter(u => u.unpaidCharges.length === 0);
+  // Check if any existing messages should now be resolved
+  await checkAndResolveOutdatedMessages(currentMessages, house);
+}
+
+// Process all messages for a single user (both own charges and roommate notifications)
+async function processUserMessages(user, house, billsWithIssues, currentMessages) {
+  // 1. Handle user's own unpaid charges
+  await processUserOwnCharges(user, house, billsWithIssues, currentMessages);
   
-  for (const user of usersWithNoIssues) {
-    await processUserRoommateNotifications(user, house, usersWithIssues, currentMessages, updatedMessageIds);
-  }
-  
-  // 3. Remove any messages that weren't updated (no longer relevant)
-  const messagesToRemove = currentMessages.filter(msg => !updatedMessageIds.has(msg.id));
-  
-  if (messagesToRemove.length > 0) {
-    // Mark as resolved
-    for (const msg of messagesToRemove) {
-      await msg.update({
-        isRead: true,
-        isResolved: true,
-        body: msg.body.includes('(RESOLVED)') ? msg.body : `${msg.body} (RESOLVED)`
-      });
-    }
-    
-    console.log(`Marked ${messagesToRemove.length} messages as resolved for house ${house.id}`);
-  }
+  // 2. Handle messages about roommates' unpaid charges
+  const usersWithIssues = Object.values(house.users).filter(u => u.unpaidCharges.length > 0);
+  await processUserRoommateNotifications(user, house, usersWithIssues, currentMessages);
 }
 
 // Process a user's own unpaid charges
-async function processUserOwnCharges(user, house, billsWithIssues, currentMessages, updatedMessageIds) {
+async function processUserOwnCharges(user, house, billsWithIssues, currentMessages) {
+  if (user.unpaidCharges.length === 0) {
+    // User has no unpaid charges - resolve any existing user messages
+    const existingUserMsg = findExistingUserMessage(currentMessages, user.id);
+    if (existingUserMsg && !existingUserMsg.isResolved) {
+      await resolveMessage(existingUserMsg, 'User has no more unpaid charges');
+    }
+    return;
+  }
+  
   // Group user's charges by bill
   const chargesByBill = {};
   let totalUserOwed = 0;
@@ -180,15 +318,11 @@ async function processUserOwnCharges(user, house, billsWithIssues, currentMessag
     totalUserOwed += parseFloat(charge.baseAmount);
   }
   
-  // Check if user has multiple bills with unpaid charges
   const billIds = Object.keys(chargesByBill);
+  const existingUserMsg = findExistingUserMessage(currentMessages, user.id);
   
   if (billIds.length > 1) {
-    // User has multiple unpaid bills - create/update consolidated message
-    const existingMsg = currentMessages.find(m => 
-      m.userId === user.id && m.type === 'user_multi_funding'
-    );
-    
+    // User has multiple unpaid bills - need user_multi_funding message
     const metadata = {
       version: new Date().toISOString(),
       totalAmount: totalUserOwed,
@@ -206,32 +340,26 @@ async function processUserOwnCharges(user, house, billsWithIssues, currentMessag
       })
     };
     
-    const message = {
+    const messageData = {
       userId: user.id,
       houseId: house.id,
       billId: parseInt(billIds[0]),
       chargeId: chargesByBill[billIds[0]][0].id,
-      type: 'user_multi_funding',
+      type: MESSAGE_TYPES.USER_MULTI_FUNDING,
       title: 'Funding Required',
       body: `You have ${billIds.length} services missing your funding totaling $${totalUserOwed.toFixed(2)}`,
       metadata: JSON.stringify(metadata),
       isResolved: false
     };
     
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
+    await evolveOrCreateUserMessage(existingUserMsg, messageData);
+    
   } else if (billIds.length === 1) {
-    // User has a single bill with unpaid charges - create individual message
+    // User has a single bill with unpaid charges - need charge_funding message
     const billId = billIds[0];
     const bill = house.bills[billId];
     const charges = chargesByBill[billId];
     const totalAmount = charges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0);
-    
-    const existingMsg = currentMessages.find(m => 
-      m.userId === user.id && 
-      m.type === 'charge_funding' &&
-      m.billId === parseInt(billId)
-    );
     
     const metadata = {
       version: new Date().toISOString(),
@@ -240,30 +368,34 @@ async function processUserOwnCharges(user, house, billsWithIssues, currentMessag
       dueDate: bill ? bill.dueDate : null
     };
     
-    const message = {
+    const messageData = {
       userId: user.id,
       houseId: house.id,
       billId: parseInt(billId),
       chargeId: charges[0].id,
-      type: 'charge_funding',
+      type: MESSAGE_TYPES.CHARGE_FUNDING,
       title: 'Funding Overdue',
       body: `Your funding for ${bill ? bill.name : 'a service'} ($${totalAmount.toFixed(2)}) is overdue`,
       metadata: JSON.stringify(metadata),
       isResolved: false
     };
     
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
+    await evolveOrCreateUserMessage(existingUserMsg, messageData);
   }
 }
 
 // Process notifications about roommates' unpaid charges
-async function processUserRoommateNotifications(user, house, usersWithIssues, currentMessages, updatedMessageIds) {
+async function processUserRoommateNotifications(user, house, usersWithIssues, currentMessages) {
   // Filter out the current user to get only roommates with issues
   const roommatesWithIssues = usersWithIssues.filter(u => u.id !== user.id);
   
+  const existingRoommateMsg = findExistingRoommateMessage(currentMessages, user.id);
+  
   if (roommatesWithIssues.length === 0) {
-    // No roommates with issues - no notifications needed
+    // No roommates with issues - resolve any existing roommate notification
+    if (existingRoommateMsg && !existingRoommateMsg.isResolved) {
+      await resolveMessage(existingRoommateMsg, 'No roommates have unpaid charges');
+    }
     return;
   }
   
@@ -275,306 +407,472 @@ async function processUserRoommateNotifications(user, house, usersWithIssues, cu
     }
   }
   
-  // If multiple roommates have unpaid charges across multiple bills
+  // Determine what type of roommate message is needed
+  let messageData;
+  
   if (roommatesWithIssues.length > 1 && roommatesBillIds.size > 1) {
-    // Create house-wide notification about multiple roommates with multiple bills
-    const existingMsg = currentMessages.find(m => 
-      m.userId === user.id && m.type === 'house_multi_roommate_funding'
-    );
-    
-    const totalRoommatesOwed = roommatesWithIssues.reduce((total, roommate) => 
-      total + roommate.unpaidCharges.reduce((sum, charge) => 
-        sum + parseFloat(charge.baseAmount), 0), 0);
-    
-    const metadata = {
-      version: new Date().toISOString(),
-      totalAmount: totalRoommatesOwed,
-      roommates: roommatesWithIssues.map(r => ({
-        id: r.id,
-        name: r.username,
-        amount: r.unpaidCharges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0),
-        billCount: new Set(r.unpaidCharges.map(c => c.billId)).size
-      })),
-      bills: [...roommatesBillIds].map(billId => {
-        const bill = house.bills[billId];
-        return {
-          id: billId,
-          name: bill ? bill.name : 'Unknown Service',
-          unpaidCount: roommatesWithIssues.filter(r => 
-            r.unpaidCharges.some(c => c.billId === billId)).length
-        };
-      })
-    };
-    
-    const message = {
-      userId: user.id,
-      houseId: house.id,
-      billId: parseInt([...roommatesBillIds][0]),
-      chargeId: roommatesWithIssues[0].unpaidCharges[0].id,
-      type: 'house_multi_roommate_funding',
-      title: 'House Funding Alert',
-      body: `${roommatesWithIssues.length} roommates are missing funding for ${roommatesBillIds.size} services`,
-      metadata: JSON.stringify(metadata),
-      isResolved: false
-    };
-    
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
-  } 
-  // If we have multiple roommates with issues on a single bill
-  else if (roommatesWithIssues.length > 1 && roommatesBillIds.size === 1) {
-    // Create a notification about multiple roommates with one bill
-    const billId = [...roommatesBillIds][0];
-    const bill = house.bills[billId];
-    
-    const existingMsg = currentMessages.find(m => 
-      m.userId === user.id && 
-      m.type === 'bill_multi_funding' &&
-      m.billId === parseInt(billId)
-    );
-    
-    const totalUnpaid = roommatesWithIssues.reduce((total, roommate) => 
-      total + roommate.unpaidCharges.filter(c => c.billId === billId)
-        .reduce((sum, c) => sum + parseFloat(c.baseAmount), 0), 0);
-    
-    const metadata = {
-      version: new Date().toISOString(),
-      billName: bill ? bill.name : 'Unknown Service',
-      dueDate: bill ? bill.dueDate : null,
-      totalUnpaid: totalUnpaid,
-      roommates: roommatesWithIssues.map(r => ({
-        id: r.id,
-        name: r.username,
-        amount: r.unpaidCharges.filter(c => c.billId === billId)
-          .reduce((sum, c) => sum + parseFloat(c.baseAmount), 0)
-      }))
-    };
-    
-    const message = {
-      userId: user.id,
-      houseId: house.id,
-      billId: parseInt(billId),
-      chargeId: roommatesWithIssues[0].unpaidCharges.find(c => c.billId === billId).id,
-      type: 'bill_multi_funding',
-      title: 'Service Funding Alert',
-      body: `${bill ? bill.name : 'A service'} is missing funding from ${roommatesWithIssues.length} roommates`,
-      metadata: JSON.stringify(metadata),
-      isResolved: false
-    };
-    
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
+    // Multiple roommates with multiple bills - house_multi_roommate_funding
+    messageData = createHouseMultiRoommateMessage(user, house, roommatesWithIssues, roommatesBillIds);
+  } else if (roommatesWithIssues.length > 1 && roommatesBillIds.size === 1) {
+    // Multiple roommates with one bill - bill_multi_funding
+    messageData = createBillMultiFundingMessage(user, house, roommatesWithIssues, [...roommatesBillIds][0]);
+  } else if (roommatesWithIssues.length === 1 && roommatesBillIds.size > 1) {
+    // One roommate with multiple bills - roommate_multi_funding
+    messageData = createRoommateMultiFundingMessage(user, house, roommatesWithIssues[0], roommatesBillIds);
+  } else if (roommatesWithIssues.length === 1 && roommatesBillIds.size === 1) {
+    // One roommate with one bill - single_funding
+    messageData = createSingleFundingMessage(user, house, roommatesWithIssues[0], [...roommatesBillIds][0]);
   }
-  // If one roommate has issues with multiple bills
-  else if (roommatesWithIssues.length === 1 && roommatesBillIds.size > 1) {
-    // Create a notification about one roommate with multiple bills
-    const roommate = roommatesWithIssues[0];
-    
-    // Find existing message by checking metadata for the roommate ID
-    const existingMsg = currentMessages.find(m => {
-      if (m.userId === user.id && m.type === 'roommate_multi_funding') {
-        try {
-          const metadata = JSON.parse(m.metadata || '{}');
-          return metadata.roommateId === roommate.id;
-        } catch (e) {
-          return false;
-        }
-      }
-      return false;
-    });
-    
-    const totalOwed = roommate.unpaidCharges.reduce((sum, c) => 
-      sum + parseFloat(c.baseAmount), 0);
-    
-    const metadata = {
-      version: new Date().toISOString(),
-      roommateId: roommate.id,
-      roommateName: roommate.username,
-      totalAmount: totalOwed,
-      bills: [...roommatesBillIds].map(billId => {
-        const bill = house.bills[billId];
-        const charges = roommate.unpaidCharges.filter(c => c.billId === billId);
-        const amount = charges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0);
-        
-        return {
-          id: billId,
-          name: bill ? bill.name : 'Unknown Service',
-          amount: amount,
-          dueDate: bill ? bill.dueDate : null
-        };
-      })
-    };
-    
-    const message = {
-      userId: user.id,
-      houseId: house.id,
-      billId: parseInt([...roommatesBillIds][0]),
-      chargeId: roommate.unpaidCharges[0].id,
-      type: 'roommate_multi_funding',
-      title: 'Roommate Funding Alert',
-      body: `${roommate.username} is missing funding for ${roommatesBillIds.size} services totaling $${totalOwed.toFixed(2)}`,
-      metadata: JSON.stringify(metadata),
-      isResolved: false
-    };
-    
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
-  }
-  // If one roommate has issues with one bill
-  else if (roommatesWithIssues.length === 1 && roommatesBillIds.size === 1) {
-    // Create a notification about one roommate with one bill
-    const roommate = roommatesWithIssues[0];
-    const billId = [...roommatesBillIds][0];
-    const bill = house.bills[billId];
-    const charges = roommate.unpaidCharges.filter(c => c.billId === billId);
-    const amount = charges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0);
-    
-    // Find existing message about this specific roommate and bill
-    const existingMsg = currentMessages.find(m => {
-      if (m.userId === user.id && m.type === 'single_funding' && m.billId === parseInt(billId)) {
-        try {
-          const metadata = JSON.parse(m.metadata || '{}');
-          return metadata.unpaidUser?.id === roommate.id;
-        } catch (e) {
-          return false;
-        }
-      }
-      return false;
-    });
-    
-    const metadata = {
-      version: new Date().toISOString(),
-      billName: bill ? bill.name : 'Unknown Service',
-      dueDate: bill ? bill.dueDate : null,
-      unpaidUser: {
-        id: roommate.id,
-        name: roommate.username,
-        amount: amount
-      }
-    };
-    
-    const message = {
-      userId: user.id,
-      houseId: house.id,
-      billId: parseInt(billId),
-      chargeId: charges[0].id,
-      type: 'single_funding',
-      title: 'Service Funding Alert',
-      body: `${bill ? bill.name : 'A service'} is missing funding from ${roommate.username} ($${amount.toFixed(2)})`,
-      metadata: JSON.stringify(metadata),
-      isResolved: false
-    };
-    
-    const updatedMsg = await upsertMessage(existingMsg, message, updatedMessageIds);
-    if (updatedMsg) updatedMessageIds.add(updatedMsg.id);
+  
+  if (messageData) {
+    await evolveOrCreateRoommateMessage(existingRoommateMsg, messageData);
   }
 }
 
-// Helper function to create or update a message
-async function upsertMessage(existingMessage, newMessage, updatedMessageIds) {
-  try {
-    if (existingMessage) {
-      // Update existing message if the content has changed
-      if (existingMessage.body !== newMessage.body || 
-          existingMessage.title !== newMessage.title || 
-          existingMessage.metadata !== newMessage.metadata ||
-          existingMessage.isResolved) {
-        
-        await existingMessage.update({
-          title: newMessage.title,
-          body: newMessage.body,
-          isRead: false, // Mark as unread since it's been updated
-          isResolved: false, // Ensure it's not marked as resolved
-          metadata: newMessage.metadata
-        });
-        console.log(`Updated urgent message ID ${existingMessage.id} for user ${newMessage.userId}`);
-      } else {
-        console.log(`No changes needed for message ID ${existingMessage.id}`);
-      }
-      return existingMessage;
-    } else {
-      // Create new message
-      const message = await UrgentMessage.create(newMessage);
-      console.log(`Created new urgent message ID ${message.id} for user ${newMessage.userId}`);
-      return message;
-    }
-  } catch (error) {
-    console.error(`Error upserting urgent message for user ${newMessage.userId}:`, error);
-    // Don't throw error, return null to indicate failure
-    return null;
-  }
+// Helper functions for creating specific message types
+function createHouseMultiRoommateMessage(user, house, roommatesWithIssues, roommatesBillIds) {
+  const totalRoommatesOwed = roommatesWithIssues.reduce((total, roommate) => 
+    total + roommate.unpaidCharges.reduce((sum, charge) => 
+      sum + parseFloat(charge.baseAmount), 0), 0);
+  
+  const metadata = {
+    version: new Date().toISOString(),
+    totalAmount: totalRoommatesOwed,
+    roommates: roommatesWithIssues.map(r => ({
+      id: r.id,
+      name: r.username,
+      amount: r.unpaidCharges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0),
+      billCount: new Set(r.unpaidCharges.map(c => c.billId)).size
+    })),
+    bills: [...roommatesBillIds].map(billId => {
+      const bill = house.bills[billId];
+      return {
+        id: billId,
+        name: bill ? bill.name : 'Unknown Service',
+        unpaidCount: roommatesWithIssues.filter(r => 
+          r.unpaidCharges.some(c => c.billId === billId)).length
+      };
+    })
+  };
+  
+  return {
+    userId: user.id,
+    houseId: house.id,
+    billId: parseInt([...roommatesBillIds][0]),
+    chargeId: roommatesWithIssues[0].unpaidCharges[0].id,
+    type: MESSAGE_TYPES.HOUSE_MULTI_ROOMMATE_FUNDING,
+    title: 'House Funding Alert',
+    body: `${roommatesWithIssues.length} roommates are missing funding for ${roommatesBillIds.size} services`,
+    metadata: JSON.stringify(metadata),
+    isResolved: false
+  };
 }
 
-// Remove messages that are no longer relevant
-async function removeResolvedMessages() {
-  try {
-    // Find all charges that are paid
-    const paidCharges = await Charge.findAll({
-      where: { status: 'paid' }
-    });
-    
-    if (paidCharges.length === 0) {
-      console.log('No paid charges found, skipping cleanup');
-      return;
-    }
-    
-    // Get IDs of paid charges
-    const paidChargeIds = paidCharges.map(c => c.id);
-    
-    // Find messages related to these charges
-    const messagesToResolve = await UrgentMessage.findAll({
-      where: { 
-        chargeId: { [Op.in]: paidChargeIds },
-        isResolved: false
-      }
-    });
-    
-    for (const msg of messagesToResolve) {
-      await msg.update({
-        isRead: true,
-        isResolved: true,
-        body: msg.body.includes('(RESOLVED)') ? msg.body : `${msg.body} (RESOLVED)`
-      });
-    }
-    
-    console.log(`Resolved ${messagesToResolve.length} messages for paid charges`);
-    
-    // Also clean up any individual charge messages if the bill is fully paid
-    // Get all bills
-    const bills = await Bill.findAll({
-      include: [{
-        model: Charge,
-        required: true
-      }]
-    });
-    
-    for (const bill of bills) {
-      // Check if all charges for this bill are paid
-      const allPaid = bill.Charges.every(c => c.status === 'paid');
+function createBillMultiFundingMessage(user, house, roommatesWithIssues, billId) {
+  const bill = house.bills[billId];
+  const totalUnpaid = roommatesWithIssues.reduce((total, roommate) => 
+    total + roommate.unpaidCharges.filter(c => c.billId === billId)
+      .reduce((sum, c) => sum + parseFloat(c.baseAmount), 0), 0);
+  
+  const metadata = {
+    version: new Date().toISOString(),
+    billName: bill ? bill.name : 'Unknown Service',
+    dueDate: bill ? bill.dueDate : null,
+    totalUnpaid: totalUnpaid,
+    roommates: roommatesWithIssues.map(r => ({
+      id: r.id,
+      name: r.username,
+      amount: r.unpaidCharges.filter(c => c.billId === billId)
+        .reduce((sum, c) => sum + parseFloat(c.baseAmount), 0)
+    }))
+  };
+  
+  return {
+    userId: user.id,
+    houseId: house.id,
+    billId: parseInt(billId),
+    chargeId: roommatesWithIssues[0].unpaidCharges.find(c => c.billId === billId).id,
+    type: MESSAGE_TYPES.BILL_MULTI_FUNDING,
+    title: 'Service Funding Alert',
+    body: `${bill ? bill.name : 'A service'} is missing funding from ${roommatesWithIssues.length} roommates`,
+    metadata: JSON.stringify(metadata),
+    isResolved: false
+  };
+}
+
+function createRoommateMultiFundingMessage(user, house, roommate, roommatesBillIds) {
+  const totalOwed = roommate.unpaidCharges.reduce((sum, c) => 
+    sum + parseFloat(c.baseAmount), 0);
+  
+  const metadata = {
+    version: new Date().toISOString(),
+    roommateId: roommate.id,
+    roommateName: roommate.username,
+    totalAmount: totalOwed,
+    bills: [...roommatesBillIds].map(billId => {
+      const bill = house.bills[billId];
+      const charges = roommate.unpaidCharges.filter(c => c.billId === billId);
+      const amount = charges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0);
       
-      if (allPaid) {
-        // Find messages related to this bill
-        const billMessages = await UrgentMessage.findAll({
-          where: { 
-            billId: bill.id,
+      return {
+        id: billId,
+        name: bill ? bill.name : 'Unknown Service',
+        amount: amount,
+        dueDate: bill ? bill.dueDate : null
+      };
+    })
+  };
+  
+  return {
+    userId: user.id,
+    houseId: house.id,
+    billId: parseInt([...roommatesBillIds][0]),
+    chargeId: roommate.unpaidCharges[0].id,
+    type: MESSAGE_TYPES.ROOMMATE_MULTI_FUNDING,
+    title: 'Roommate Funding Alert',
+    body: `${roommate.username} is missing funding for ${roommatesBillIds.size} services totaling $${totalOwed.toFixed(2)}`,
+    metadata: JSON.stringify(metadata),
+    isResolved: false
+  };
+}
+
+function createSingleFundingMessage(user, house, roommate, billId) {
+  const bill = house.bills[billId];
+  const charges = roommate.unpaidCharges.filter(c => c.billId === billId);
+  const amount = charges.reduce((sum, c) => sum + parseFloat(c.baseAmount), 0);
+  
+  const metadata = {
+    version: new Date().toISOString(),
+    billName: bill ? bill.name : 'Unknown Service',
+    dueDate: bill ? bill.dueDate : null,
+    unpaidUser: {
+      id: roommate.id,
+      name: roommate.username,
+      amount: amount
+    }
+  };
+  
+  return {
+    userId: user.id,
+    houseId: house.id,
+    billId: parseInt(billId),
+    chargeId: charges[0].id,
+    type: MESSAGE_TYPES.SINGLE_FUNDING,
+    title: 'Service Funding Alert',
+    body: `${bill ? bill.name : 'A service'} is missing funding from ${roommate.username} ($${amount.toFixed(2)})`,
+    metadata: JSON.stringify(metadata),
+    isResolved: false
+  };
+}
+
+// Helper functions for finding existing messages
+function findExistingUserMessage(currentMessages, userId) {
+  return currentMessages.find(m => 
+    m.userId === userId && USER_MESSAGE_TYPES.includes(m.type) && !m.isResolved
+  );
+}
+
+function findExistingRoommateMessage(currentMessages, userId) {
+  return currentMessages.find(m => 
+    m.userId === userId && ROOMMATE_MESSAGE_TYPES.includes(m.type) && !m.isResolved
+  );
+}
+
+// Message evolution functions
+async function evolveOrCreateUserMessage(existingMessage, newMessageData) {
+  if (existingMessage) {
+    await evolveMessage(existingMessage, newMessageData);
+  } else {
+    await createMessage(newMessageData);
+  }
+}
+
+async function evolveOrCreateRoommateMessage(existingMessage, newMessageData) {
+  if (existingMessage) {
+    await evolveMessage(existingMessage, newMessageData);
+  } else {
+    await createMessage(newMessageData);
+  }
+}
+
+async function evolveMessage(existingMessage, newMessageData) {
+  const needsUpdate = 
+    existingMessage.type !== newMessageData.type ||
+    existingMessage.title !== newMessageData.title ||
+    existingMessage.body !== newMessageData.body ||
+    existingMessage.metadata !== newMessageData.metadata ||
+    existingMessage.chargeId !== newMessageData.chargeId ||
+    existingMessage.billId !== newMessageData.billId;
+  
+  if (needsUpdate) {
+    const wasTypeChange = existingMessage.type !== newMessageData.type;
+    const wasChargeChange = existingMessage.chargeId !== newMessageData.chargeId;
+    
+    try {
+      // If the type or charge is changing, we need to be careful about the unique constraint
+      if (wasTypeChange || wasChargeChange) {
+        // Check if updating would violate the unique constraint
+        const conflictingMessage = await UrgentMessage.findOne({
+          where: {
+            chargeId: newMessageData.chargeId,
+            userId: newMessageData.userId,
+            type: newMessageData.type,
+            id: { [Op.ne]: existingMessage.id }, // Exclude the current message
             isResolved: false
           }
         });
         
-        for (const msg of billMessages) {
-          await msg.update({
-            isRead: true,
-            isResolved: true,
-            body: msg.body.includes('(RESOLVED)') ? msg.body : `${msg.body} (RESOLVED)`
-          });
+        if (conflictingMessage) {
+          // If there's a conflict, resolve the conflicting message first
+          console.log(`Resolving conflicting message ${conflictingMessage.id} before updating message ${existingMessage.id}`);
+          await resolveMessage(conflictingMessage, 'Replaced by updated message');
         }
+      }
+      
+      await existingMessage.update({
+        type: newMessageData.type,
+        title: newMessageData.title,
+        body: newMessageData.body,
+        metadata: newMessageData.metadata,
+        billId: newMessageData.billId,
+        chargeId: newMessageData.chargeId,
+        isRead: false, // Mark as unread since it changed
+        isResolved: false
+      });
+      
+      if (wasTypeChange) {
+        console.log(`Message ${existingMessage.id} transitioned from ${existingMessage.type} to ${newMessageData.type}`);
+      } else {
+        console.log(`Message ${existingMessage.id} updated with new content`);
+      }
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        console.log(`Unique constraint conflict for message ${existingMessage.id}, resolving existing and creating new`);
         
-        console.log(`Resolved ${billMessages.length} messages for fully paid bill ${bill.id}`);
+        // Resolve the existing message
+        await resolveMessage(existingMessage, 'Replaced due to constraint conflict');
+        
+        // Create a new message with the new data
+        await createMessage(newMessageData);
+      } else {
+        throw error;
       }
     }
+  } else {
+    console.log(`Message ${existingMessage.id} - no changes needed`);
+  }
+}
+
+async function createMessage(messageData) {
+  try {
+    // First check if a message with the same charge_id, user_id, and type already exists
+    const existingMessage = await UrgentMessage.findOne({
+      where: {
+        chargeId: messageData.chargeId,
+        userId: messageData.userId,
+        type: messageData.type,
+        isResolved: false
+      }
+    });
+
+    if (existingMessage) {
+      console.log(`Message already exists for charge ${messageData.chargeId}, user ${messageData.userId}, type ${messageData.type}. Updating instead.`);
+      
+      // Update the existing message instead of creating a new one
+      await existingMessage.update({
+        title: messageData.title,
+        body: messageData.body,
+        metadata: messageData.metadata,
+        billId: messageData.billId,
+        isRead: false, // Mark as unread since it's updated
+        isResolved: false
+      });
+      
+      console.log(`Updated existing message ${existingMessage.id} for user ${messageData.userId}`);
+      return existingMessage;
+    }
+
+    // If no existing message, create a new one
+    const message = await UrgentMessage.create(messageData);
+    console.log(`Created new ${messageData.type} message (ID: ${message.id}) for user ${messageData.userId}`);
+    return message;
   } catch (error) {
-    console.error('Error removing resolved messages:', error);
-    // Don't throw - this is a maintenance operation
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      console.log(`Unique constraint error for user ${messageData.userId}, type ${messageData.type}. Attempting to find and update existing message.`);
+      
+      // Try to find the existing message and update it
+      try {
+        const existingMessage = await UrgentMessage.findOne({
+          where: {
+            chargeId: messageData.chargeId,
+            userId: messageData.userId,
+            type: messageData.type
+          }
+        });
+
+        if (existingMessage) {
+          await existingMessage.update({
+            title: messageData.title,
+            body: messageData.body,
+            metadata: messageData.metadata,
+            billId: messageData.billId,
+            isRead: false,
+            isResolved: false
+          });
+          
+          console.log(`Updated existing conflicting message ${existingMessage.id} for user ${messageData.userId}`);
+          return existingMessage;
+        }
+      } catch (updateError) {
+        console.error(`Failed to update existing message for user ${messageData.userId}:`, updateError);
+      }
+    }
+    
+    console.error(`Error creating message for user ${messageData.userId}:`, error);
+    return null;
+  }
+}
+
+async function resolveMessage(message, reason) {
+  await message.update({
+    isRead: true,
+    isResolved: true,
+    body: message.body.includes('(RESOLVED)') ? message.body : `${message.body} (RESOLVED)`
+  });
+  console.log(`Resolved message ${message.id} (${message.type}): ${reason}`);
+}
+
+// Check if any existing messages should now be resolved based on current house state
+async function checkAndResolveOutdatedMessages(currentMessages, house) {
+  const usersWithIssues = Object.values(house.users).filter(u => u.unpaidCharges.length > 0);
+  const roommatesWithMultipleBills = usersWithIssues.filter(u => 
+    new Set(u.unpaidCharges.map(c => c.billId)).size > 1
+  );
+  
+  for (const message of currentMessages) {
+    if (message.isResolved) continue;
+    
+    let shouldResolve = false;
+    let reason = '';
+    
+    try {
+      const metadata = JSON.parse(message.metadata || '{}');
+      
+      switch (message.type) {
+        case MESSAGE_TYPES.HOUSE_MULTI_ROOMMATE_FUNDING:
+          // Should resolve if we don't have multiple roommates with multiple bills anymore
+          shouldResolve = roommatesWithMultipleBills.length <= 1;
+          reason = 'No longer multiple roommates with multiple bills';
+          break;
+          
+        case MESSAGE_TYPES.BILL_MULTI_FUNDING:
+          // Should resolve if the specific bill is fully paid
+          const bill = house.bills[message.billId];
+          shouldResolve = !bill || bill.unpaidCharges.length === 0;
+          reason = `Bill ${message.billId} is fully paid`;
+          break;
+          
+        case MESSAGE_TYPES.ROOMMATE_MULTI_FUNDING:
+          // Should resolve if the specific roommate no longer has multiple bills
+          const roommateId = metadata.roommateId;
+          const roommate = house.users[roommateId];
+          if (roommate) {
+            const roommateBillCount = new Set(roommate.unpaidCharges.map(c => c.billId)).size;
+            shouldResolve = roommateBillCount <= 1;
+            reason = `Roommate ${roommateId} no longer has multiple unpaid bills`;
+          } else {
+            shouldResolve = true;
+            reason = `Roommate ${roommateId} no longer in house`;
+          }
+          break;
+          
+        case MESSAGE_TYPES.SINGLE_FUNDING:
+          // Should resolve if the bill is fully paid or the roommate has no issues
+          const unpaidUser = metadata.unpaidUser;
+          if (unpaidUser) {
+            const roommateWithIssues = house.users[unpaidUser.id];
+            shouldResolve = !roommateWithIssues || roommateWithIssues.unpaidCharges.length === 0;
+            reason = `Roommate ${unpaidUser.id} has no more unpaid charges`;
+          }
+          break;
+      }
+      
+      if (shouldResolve) {
+        await resolveMessage(message, reason);
+      }
+    } catch (error) {
+      console.error(`Error checking if message ${message.id} should be resolved:`, error);
+    }
+  }
+}
+
+// Remove messages that are actually resolved (scenario-based, not charge-based)
+async function removeActuallyResolvedMessages() {
+  try {
+    console.log('Checking for messages that should be resolved due to scenario completion...');
+    
+    // Get all houses with their current state
+    const houses = await House.findAll({
+      include: [
+        {
+          model: User,
+          as: 'users',
+          attributes: ['id', 'username', 'email']
+        }
+      ]
+    });
+    
+    // For each house, get unpaid charges separately to avoid association issues
+    for (const house of houses) {
+      // Get unpaid charges for users in this house
+      const userIds = house.users.map(u => u.id);
+      const unpaidCharges = await Charge.findAll({
+        where: {
+          userId: { [Op.in]: userIds },
+          status: { [Op.ne]: 'paid' }
+        },
+        include: [
+          { model: Bill, attributes: ['id', 'name', 'houseId'] }
+        ]
+      });
+      
+      // Build house data structure
+      const houseData = {
+        id: house.id,
+        users: {},
+        bills: {}
+      };
+      
+      // Initialize users
+      for (const user of house.users) {
+        houseData.users[user.id] = {
+          id: user.id,
+          username: user.username,
+          unpaidCharges: []
+        };
+      }
+      
+      // Add unpaid charges to users
+      for (const charge of unpaidCharges) {
+        if (houseData.users[charge.userId]) {
+          houseData.users[charge.userId].unpaidCharges.push(charge);
+        }
+      }
+      
+      // Check current messages for this house
+      const currentMessages = await UrgentMessage.findAll({
+        where: { houseId: house.id, isResolved: false }
+      });
+      
+      if (currentMessages.length > 0) {
+        await checkAndResolveOutdatedMessages(currentMessages, houseData);
+      }
+    }
+
+    
+    console.log('Scenario-based message resolution check completed');
+  } catch (error) {
+    console.error('Error in scenario-based message resolution:', error);
   }
 }
 
@@ -590,5 +888,10 @@ module.exports = {
   generateFundingMissingMessages, // For backward compatibility
   findOverdueCharges,
   analyzeHouseIssues,
-  removeResolvedMessages
+  removeActuallyResolvedMessages,
+  MESSAGE_TYPES,
+  updateUrgentMessagesForPayment,
+  refreshUrgentMessagesForHouse,
+  resolveAllMessagesForHouse,
+  updateUrgentMessagesForUser
 };

@@ -10,10 +10,22 @@ const {
   DeviceToken,
   sequelize 
 } = require('../models');
-const hsiService = require('./hsiService');
+const hsiService = require('./houseRiskService');
 const financeService = require('./financeService');
 const pushNotificationService = require('./pushNotificationService');
 const { Op } = require('sequelize');
+
+// Utility functions for staggering notifications
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Stagger configuration
+const STAGGER_CONFIG = {
+  DELAY_BETWEEN_NOTIFICATIONS: 2000, // 2 seconds between notifications
+  DELAY_BETWEEN_BATCHES: 5000,       // 5 seconds between batches
+  BATCH_SIZE: 5                      // Process 5 notifications at once
+};
 
 /**
  * Core bill creation function - centralized logic for creating bills
@@ -124,6 +136,8 @@ async function createBill(params) {
       houseServiceId: service.id,
       billId: bill.id,
       fundingRequired: parsedBaseAmount,
+      serviceFeeTotal: totalServiceFee,
+      totalRequired: totalAmount,
       funded: 0.00,
       amountFronted: 0.00,
       status: 'active',
@@ -463,7 +477,7 @@ const billService = {
         
         // Create notifications for the designated user
         try {
-          const message = `It's time to enter the bill amount for ${service.name}. Please login to your service provider account and enter the current bill amount.`;
+          const message = `Time to enter your ${service.name} bill amount. Check your account and submit it.`;
           const metadata = {
             type: 'variable_bill_reminder',
             serviceId: service.id,
@@ -614,7 +628,7 @@ const billService = {
           });
           
           // Create notifications for the designated user
-          const message = `Please submit the ${service.name} bill amount for this month`;
+          const message = `Submit ${service.name} bill amount for this month`;
           const metadata = {
             type: 'bill_submission',
             billSubmissionId: submission.id,
@@ -681,7 +695,15 @@ const billService = {
       
       const results = [];
       
-      for (const submission of pendingSubmissions) {
+      // Process submissions with staggering to prevent notification spam
+      for (let i = 0; i < pendingSubmissions.length; i++) {
+        const submission = pendingSubmissions[i];
+        
+        // Add delay between submissions (except for the first one)
+        if (i > 0) {
+          await sleep(STAGGER_CONFIG.DELAY_BETWEEN_NOTIFICATIONS);
+        }
+        
         // Check if a reminder notification was already sent in the last 24 hours
         const recentNotification = await Notification.findOne({
           where: {
@@ -704,8 +726,8 @@ const billService = {
           
           // Create reminder notification with appropriate urgency
           const message = daysUntilDue <= 1
-            ? `URGENT: Please submit the ${submission.houseService.name} bill amount today!`
-            : `Reminder: Please submit the ${submission.houseService.name} bill amount soon. It's due in ${daysUntilDue} days.`;
+            ? `URGENT: Submit ${submission.houseService.name} bill amount today!`
+            : `Submit ${submission.houseService.name} bill amount - due in ${daysUntilDue} days`;
           
           const metadata = {
             type: 'bill_submission_reminder',
@@ -788,8 +810,15 @@ const billService = {
       
       const notifications = [];
       
-      // Send notifications to all users with charges for this bill
-      for (const charge of bill.charges) {
+      // Send notifications to all users with charges for this bill (with staggering)
+      for (let i = 0; i < bill.charges.length; i++) {
+        const charge = bill.charges[i];
+        
+        // Add delay between notifications (except for the first one)
+        if (i > 0) {
+          await sleep(STAGGER_CONFIG.DELAY_BETWEEN_NOTIFICATIONS);
+        }
+        
         const metadata = {
           type: 'bill_notification',
           billId: bill.id,

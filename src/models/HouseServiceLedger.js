@@ -19,6 +19,18 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 0.00
     },
+    serviceFeeTotal: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+      comment: 'Total service fees for this ledger cycle'
+    },
+    totalRequired: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+      comment: 'Total amount required including base amount and service fees'
+    },
     funded: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
@@ -68,7 +80,7 @@ module.exports = (sequelize, DataTypes) => {
    */
   HouseServiceLedger.prototype.addContribution = async function(userId, amount, chargeId = null, transaction = null, skipFundedIncrement = false) {
     try {
-      console.log(`Adding contribution: User ${userId} paid ${amount} for charge ${chargeId} to ledger ${this.id}`);
+
   
       const metadata = this.metadata || {};
       const fundedUsers = metadata.fundedUsers || [];
@@ -106,7 +118,7 @@ module.exports = (sequelize, DataTypes) => {
   
       await this.save({ transaction });
   
-      console.log(`Successfully updated ledger ${this.id} with contribution from user ${userId}`);
+      
       return true;
     } catch (error) {
       console.error(`Error adding contribution to ledger ${this.id}:`, error);

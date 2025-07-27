@@ -13,8 +13,6 @@ async function run() {
     const feeMultiplier = 1 + ((50 - newScore) / 250);
     const creditMultiplier = newScore / 50;
 
-    console.log(`Updating HSI for houseId: ${houseId}`);
-    console.log(`New score: ${newScore}, bracket: ${newBracket}, fee multiplier: ${feeMultiplier.toFixed(2)}, credit multiplier: ${creditMultiplier.toFixed(2)}`);
 
     // Find existing HSI record for the house, or create one if none exists
     let hsi = await HouseStatusIndex.findOne({ where: { houseId } });
@@ -27,7 +25,7 @@ async function run() {
         creditMultiplier,
         updatedReason: 'Manual update'
       });
-      console.log("Created a new HouseStatusIndex record.");
+ 
     } else {
       await hsi.update({
         score: newScore,
@@ -36,7 +34,7 @@ async function run() {
         creditMultiplier,
         updatedReason: 'Manual update'
       });
-      console.log("Updated the existing HouseStatusIndex record.");
+
     }
 
     // Define the fee category for this example
@@ -44,9 +42,7 @@ async function run() {
 
     // Calculate the adjusted service fee using the hsiService
     const serviceFee = await hsiService.getServiceFee(houseId, feeCategory);
-    console.log(`For feeCategory "${feeCategory}":`);
-    console.log(`- Base fee: $${feeCategory === "card" ? '2.00' : '0.00'}`);
-    console.log(`- Adjusted service fee (after applying HSI multiplier): $${serviceFee}`);
+ 
 
     // Exit gracefully
     process.exit(0);

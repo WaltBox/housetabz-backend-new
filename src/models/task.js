@@ -101,13 +101,6 @@ module.exports = (sequelize, DataTypes) => {
 
         const bundle = await task.getServiceRequestBundle({ transaction });
         if (bundle) {
-          console.log('Processing payment update:', {
-            taskId: task.id,
-            bundleId: bundle.id,
-            currentTotal: bundle.totalPaidUpfront,
-            addingAmount: task.paymentAmount
-          });
-
           const currentTotal = Number(bundle.totalPaidUpfront || 0);
           const paymentAmount = Number(task.paymentAmount || 0);
           await bundle.update(

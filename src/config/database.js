@@ -15,14 +15,27 @@ const sequelize = new Sequelize(envConfig.url, {
   dialect: envConfig.dialect,
   dialectOptions: envConfig.dialectOptions || {}, // Include SSL if defined
   logging: envConfig.logging || false, // Use environment-specific logging
+  pool: {
+    max: 20,          // Maximum connections in pool
+    min: 5,           // Minimum connections maintained
+    acquire: 30000,   // 30 seconds to get connection
+    idle: 10000,      // 10 seconds before releasing idle connection
+    evict: 5000,      // Check for idle connections every 5s
+  },
+  retry: {
+    max: 3,           // Retry failed connections
+  },
+  query: {
+    timeout: 30000,   // 30 second query timeout
+  },
 });
 
 // Test connection when the module is loaded
 (async () => {
   try {
-    console.log(`Connecting to database at: ${envConfig.url}`);
+  
     await sequelize.authenticate();
-    console.log('Database connection established successfully.');
+   
   } catch (error) {
     console.error('Unable to connect to the database:', error.message);
     process.exit(1); // Exit on failure

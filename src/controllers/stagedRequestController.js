@@ -158,7 +158,7 @@ try {
     timestamp: new Date().toISOString()
   };
   
-  console.log(`Attempting to send agreement.created webhook for transaction ${transactionId}:`, webhookPayload);
+
   
   const webhookResult = await webhookService.sendWebhook(
     partnerId,
@@ -166,7 +166,7 @@ try {
     webhookPayload
   );
   
-  console.log('Webhook result:', webhookResult);
+
 } catch (error) {
   console.error('Error sending agreement.created webhook:', error);
 }

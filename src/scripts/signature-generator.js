@@ -44,8 +44,6 @@ function createAuthHeaders(payload, apiKey, secretKey) {
   };
 }
 
-console.log('🔐 HouseTabz Partner Signature Generator\n');
-console.log('Use this to generate HMAC signatures for testing partner API authentication\n');
 
 // ✅ EXAMPLE - You can customize the payload for your test
 const examplePayload = {
@@ -55,23 +53,3 @@ const examplePayload = {
 
 const headers = createAuthHeaders(examplePayload, TEST_PARTNER.apiKey, TEST_PARTNER.secretKey);
 
-console.log('Generated Headers:');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log(`x-api-key: ${headers['x-api-key']}`);
-console.log(`housetabz-timestamp: ${headers['housetabz-timestamp']}`);
-console.log(`housetabz-signature: ${headers['housetabz-signature']}`);
-console.log('');
-
-// ✅ VERIFICATION HELPER
-console.log('🔍 HOW TO USE:');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('1. Update TEST_PARTNER with your real credentials');
-console.log('2. Modify examplePayload with your test data');  
-console.log('3. Use the generated headers in your API requests');
-console.log('');
-
-console.log('✅ SETUP INSTRUCTIONS:');
-console.log('1. Replace TEST_PARTNER credentials with real values');
-console.log('2. Run: node signature-generator.js');
-console.log('3. Use the generated headers for testing');
-console.log('='.repeat(50));

@@ -7,7 +7,7 @@ module.exports = {
     try {
       await queryInterface.removeIndex('Payments', 'Payments_taskId');
     } catch (error) {
-      console.log('Index Payments_taskId not found, skipping removal.');
+     
     }
 
     // Remove the taskId column from the Payments table

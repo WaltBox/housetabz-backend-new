@@ -13,11 +13,11 @@ const client = new Client({
 
 (async () => {
   try {
-    console.log('Testing connection with pg library...');
+  
     await client.connect();
-    console.log('Connected to database successfully.');
+   
   } catch (error) {
-    console.error('Unable to connect to the database:', error.message);
+
   } finally {
     await client.end();
   }

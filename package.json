@@ -12,7 +12,9 @@
     "test": "NODE_ENV=development_local jest",
     "test:watch": "NODE_ENV=development_local jest --watch",
     "test:integration": "NODE_ENV=development_local jest src/tests/integration",
-    "test:unit": "NODE_ENV=development_local jest src/tests/unit"
+    "test:unit": "NODE_ENV=development_local jest src/tests/unit",
+    "monitor": "node src/scripts/performance-monitor.js",
+    "monitor:continuous": "node src/scripts/performance-monitor.js --continuous"
   },
   "jest": {
     "testEnvironment": "node",

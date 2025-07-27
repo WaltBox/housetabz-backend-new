@@ -77,7 +77,7 @@ module.exports = {
       if (!tableInfo[column.name]) {
         await queryInterface.addColumn('HouseServices', column.name, column.spec);
       } else {
-        console.log(`Column ${column.name} already exists, skipping...`);
+        
       }
     }
   },
@@ -101,7 +101,7 @@ module.exports = {
       if (tableInfo[columnName]) {
         await queryInterface.removeColumn('HouseServices', columnName);
       } else {
-        console.log(`Column ${columnName} doesn't exist, skipping removal...`);
+      
       }
     }
   }

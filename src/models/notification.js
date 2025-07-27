@@ -5,9 +5,23 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         references: { model: 'Users', key: 'id' },
       },
-      message: {
+      title: {
         type: DataTypes.STRING,
+        allowNull: true,
+      },
+      message: {
+        type: DataTypes.TEXT,
         allowNull: false,
+      },
+      type: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: 'general'
+      },
+      metadata: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+        defaultValue: {}
       },
       isRead: {
         type: DataTypes.BOOLEAN,

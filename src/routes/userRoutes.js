@@ -38,7 +38,7 @@ router.use(authenticateUser);
  *         description: User not found
  */
 router.get('/:id/payments', catchAsync(paymentController.getUserPayments));
-
+router.get('/:id/dashboard', catchAsync(userController.getDashboardData));
 // Existing user routes:
 router.get('/:id', catchAsync(userController.getUser));
 router.get('/', catchAsync(userController.getAllUsers));
@@ -58,5 +58,55 @@ router.put('/:id', catchAsync(userController.updateUser));
 router.delete('/:id', catchAsync(userController.deleteUser));
 router.put('/:id/house', catchAsync(userController.updateUserHouse));
 router.put('/:id/join-house', catchAsync(userController.joinHouse));
+
+/**
+ * @swagger
+ * /users/{id}/complete-onboarding:
+ *   post:
+ *     summary: Complete user onboarding process
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: Onboarding completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     onboarded:
+ *                       type: boolean
+ *                     onboarding_step:
+ *                       type: string
+ *                     onboarded_at:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Missing house or payment method
+ *       403:
+ *         description: Unauthorized access
+ *       404:
+ *         description: User not found
+ */
+router.post('/:id/complete-onboarding', catchAsync(userController.completeOnboarding));
 
 module.exports = router;
