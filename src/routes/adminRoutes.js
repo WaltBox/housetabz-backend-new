@@ -23,6 +23,10 @@ router.get('/user-payments', authenticateAdmin, adminController.getUserPayments)
 router.get('/delinquent-users', authenticateAdmin, catchAsync(adminController.getDelinquentUsers));
 router.get('/bills/:billId', authenticateAdmin, catchAsync(adminController.getBillDetails));
 
+// Admin messaging endpoints
+router.post('/messages/send', authenticateAdmin, catchAsync(adminController.sendMessageToUsers));
+router.post('/messages/send-to-house', authenticateAdmin, catchAsync(adminController.sendMessageToHouse));
+
 // Detailed user/house routes (optional - use if you need the detailed endpoints)
 // router.use('/users', require('./adminUserRoutes')); 
 // router.use('/houses', require('./adminHouseRoutes'));

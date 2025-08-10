@@ -97,15 +97,17 @@ const webhookService = {
     const payloadString = JSON.stringify(payload);
     const signedPayload = `${timestamp}.${payloadString}`;
     
+    // Strip whsec_ prefix if present (common for Stripe-style webhook secrets)
+    const cleanSecret = secret.startsWith('whsec_') ? secret.substring(6) : secret;
+    
     const signature = crypto
-      .createHmac('sha256', secret)
+      .createHmac('sha256', cleanSecret)
       .update(signedPayload)
       .digest('hex');
     
     return {
       'HouseTabz-Timestamp': timestamp.toString(),
-     'HouseTabz-Signature': `sha256=${signature}`
-
+      'HouseTabz-Signature': `sha256=${signature}`
     };
   },
   

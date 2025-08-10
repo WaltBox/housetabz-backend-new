@@ -16,13 +16,16 @@ const {
   Transaction,
   UrgentMessage,
   BillSubmission,
+  Partner,
   sequelize 
 } = require('../models');
 const { Op } = require('sequelize');
 
 // Simple in-memory cache for dashboard summaries
 const summaryCache = new Map();
+const partnersCache = new Map(); // New cache specifically for partners
 const CACHE_TTL = 30 * 1000; // 30 seconds cache
+const PARTNERS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes cache for partners (they change very infrequently)
 
 class DashboardService {
   /**
@@ -227,6 +230,26 @@ class DashboardService {
         });
       }
 
+      // 10. Partners data with caching (global data)
+      let cachedPartners = null;
+      const partnersCacheKey = 'all_partners';
+      const cached = partnersCache.get(partnersCacheKey);
+      
+      if (cached && Date.now() - cached.timestamp < PARTNERS_CACHE_TTL) {
+        console.log(`[dashboard-service] Partners cache hit`);
+        cachedPartners = cached.data;
+      } else {
+        console.log(`[dashboard-service] Partners cache miss - fetching fresh data`);
+        queries.partners = Partner.findAll({
+          attributes: [
+            'id',
+            'name',
+            'logo',
+            'marketplace_cover'
+          ]
+        });
+      }
+
       // Execute all queries in parallel
       const results = await Promise.allSettled([
         Promise.resolve(user), // User data we already have
@@ -238,7 +261,8 @@ class DashboardService {
         queries.notifications,
         queries.urgentMessages,
         queries.billSubmissions || Promise.resolve([]),
-        queries.houseServicesCount || Promise.resolve(0)
+        queries.houseServicesCount || Promise.resolve(0),
+        queries.partners || Promise.resolve([])
       ]);
 
       // Process results
@@ -252,7 +276,8 @@ class DashboardService {
         notificationsResult,
         urgentMessagesResult,
         billSubmissionsResult,
-        houseServicesCountResult
+        houseServicesCountResult,
+        partnersResult
       ] = results;
 
       // Extract data with error handling
@@ -266,6 +291,35 @@ class DashboardService {
       const urgentMessages = urgentMessagesResult.status === 'fulfilled' ? urgentMessagesResult.value : [];
       const billSubmissions = billSubmissionsResult.status === 'fulfilled' ? billSubmissionsResult.value : [];
       const houseServicesCount = houseServicesCountResult.status === 'fulfilled' ? houseServicesCountResult.value : 0;
+
+      // Handle partners data with caching
+      let partners = [];
+      if (cachedPartners) {
+        partners = cachedPartners;
+      } else if (partnersResult && partnersResult.status === 'fulfilled') {
+        partners = partnersResult.value || [];
+        
+        // Cache the partners data if we fetched it fresh
+        if (partners.length >= 0) { // Cache even if empty array
+          const partnersCacheKey = 'all_partners';
+          partnersCache.set(partnersCacheKey, {
+            data: partners,
+            timestamp: Date.now()
+          });
+          
+          // Clean up old cache entries periodically (though there should only be one)
+          if (partnersCache.size > 5) {
+            const now = Date.now();
+            for (const [key, value] of partnersCache.entries()) {
+              if (now - value.timestamp > PARTNERS_CACHE_TTL) {
+                partnersCache.delete(key);
+              }
+            }
+          }
+          
+          console.log(`[dashboard-service] Partners cached (${partners.length} partners)`);
+        }
+      }
 
       // Calculate summary statistics
       const totalOwed = pendingCharges.reduce((sum, charge) => sum + parseFloat(charge.amount || 0), 0);
@@ -392,6 +446,12 @@ class DashboardService {
             id: submission.user.id,
             username: submission.user.username
           } : null
+        })),
+        partners: partners.map(partner => ({
+          id: partner.id,
+          name: partner.name,
+          logo: partner.logo,
+          marketplace_cover: partner.marketplace_cover
         })),
         summary: {
           totalOwed: totalOwed.toFixed(2),
@@ -639,6 +699,24 @@ class DashboardService {
   static clearAllSummaryCache() {
     summaryCache.clear();
     console.log('[dashboard-service] All dashboard summary cache cleared');
+  }
+
+  /**
+   * Clear partners cache
+   * Call this when partners are created, updated, or deleted
+   */
+  static clearPartnersCache() {
+    const partnersCacheKey = 'all_partners';
+    partnersCache.delete(partnersCacheKey);
+    console.log(`[dashboard-service] Partners cache cleared`);
+  }
+
+  /**
+   * Clear all partners cache (same as clearPartnersCache since there's only one global cache)
+   */
+  static clearAllPartnersCache() {
+    partnersCache.clear();
+    console.log('[dashboard-service] All partners cache cleared');
   }
 
   /**

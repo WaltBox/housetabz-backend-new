@@ -323,7 +323,7 @@ exports.updateHouseService = async (req, res) => {
       designatedUserId: designatedUserId !== undefined ? designatedUserId : houseService.designatedUserId,
       metadata: metadata || houseService.metadata
     });
-  
+
     res.status(200).json({
       message: 'HouseService updated successfully',
       houseService
@@ -344,7 +344,7 @@ exports.deleteHouseService = async (req, res) => {
     if (!houseService) {
       return res.status(404).json({ message: 'HouseService not found' });
     }
-    
+
     await houseService.destroy();
 
     res.status(200).json({ message: 'HouseService deleted successfully' });

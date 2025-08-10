@@ -545,7 +545,277 @@ const adminController = {
       console.error('Error during admin logout:', error);
       return res.status(500).json({ error: 'Failed to log out' });
     }
-  }
-};
+  },
 
-module.exports = adminController;
+  // Send message to specific users with push notifications
+  async sendMessageToUsers(req, res) {
+    const transaction = await sequelize.transaction();
+    
+    try {
+      const { userIds, title, message, type = 'admin_message', data = {} } = req.body;
+      const adminId = req.current_admin.id;
+      const adminName = req.current_admin.name || req.current_admin.email;
+
+      // Validate required fields
+      if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'userIds array is required and must contain at least one user ID' 
+        });
+      }
+
+      if (!title || !message) {
+        await transaction.rollback();
+        return res.status(400).json({ 
+          error: 'title and message are required' 
+        });
+      }
+
+      // Validate user IDs exist and are active
+      const users = await User.findAll({
+        where: { 
+          id: { [Op.in]: userIds },
+          // Add any additional conditions like isActive if you have such field
+        },
+        transaction
+      });
+
+      if (users.length === 0) {
+        await transaction.rollback();
+        return res.status(404).json({ 
+          error: 'No valid users found with the provided user IDs' 
+        });
+      }
+
+      const foundUserIds = users.map(user => user.id);
+      const notFoundUserIds = userIds.filter(id => !foundUserIds.includes(parseInt(id)));
+
+      // Create notification metadata
+      const metadata = {
+        ...data,
+        adminId,
+        adminName,
+        source: 'admin_message',
+        timestamp: new Date().toISOString()
+      };
+
+      // Create notifications for all users
+      const notificationPromises = users.map(user => 
+        sequelize.models.Notification.create({
+          userId: user.id,
+          title,
+          message,
+          type,
+          metadata,
+          isRead: false
+        }, { transaction })
+      );
+
+      const notifications = await Promise.all(notificationPromises);
+      
+      // Commit transaction first
+      await transaction.commit();
+
+      // Send push notifications after transaction commits (non-blocking)
+      const pushResults = [];
+      
+      for (const user of users) {
+        try {
+          // Import push notification service
+          const pushNotificationService = require('../services/pushNotificationService');
+          
+          await pushNotificationService.sendPushNotification(user, {
+            title,
+            message,
+            data: {
+              ...metadata,
+              notificationId: notifications.find(n => n.userId === user.id)?.id,
+              type
+            }
+          });
+          
+          pushResults.push({ userId: user.id, status: 'sent' });
+        } catch (pushError) {
+          console.error(`Failed to send push notification to user ${user.id}:`, pushError);
+          pushResults.push({ 
+            userId: user.id, 
+            status: 'failed', 
+            error: pushError.message 
+          });
+        }
+      }
+
+      // Return success response
+      return res.status(200).json({
+        message: 'Messages sent successfully',
+        summary: {
+          totalRequested: userIds.length,
+          notificationsCreated: notifications.length,
+          pushNotificationsSent: pushResults.filter(r => r.status === 'sent').length,
+          pushNotificationsFailed: pushResults.filter(r => r.status === 'failed').length
+        },
+        details: {
+          notificationsCreated: notifications.map(n => ({
+            id: n.id,
+            userId: n.userId,
+            title: n.title,
+            message: n.message
+          })),
+          pushResults,
+          notFoundUserIds: notFoundUserIds.length > 0 ? notFoundUserIds : undefined
+        }
+      });
+
+    } catch (error) {
+      // Only rollback if transaction is still active
+      if (!transaction.finished) {
+        await transaction.rollback();
+      }
+      
+             console.error('Error sending admin message to users:', error);
+       return res.status(500).json({ 
+         error: 'Failed to send messages',
+         details: error.message 
+       });
+     }
+   },
+
+   // Send message to all users in a house
+   async sendMessageToHouse(req, res) {
+     const transaction = await sequelize.transaction();
+     
+     try {
+       const { houseId, title, message, type = 'admin_house_message', data = {} } = req.body;
+       const adminId = req.current_admin.id;
+       const adminName = req.current_admin.name || req.current_admin.email;
+
+       // Validate required fields
+       if (!houseId) {
+         await transaction.rollback();
+         return res.status(400).json({ 
+           error: 'houseId is required' 
+         });
+       }
+
+       if (!title || !message) {
+         await transaction.rollback();
+         return res.status(400).json({ 
+           error: 'title and message are required' 
+         });
+       }
+
+       // Validate house exists and get all users in the house
+       const house = await House.findByPk(houseId, { transaction });
+       if (!house) {
+         await transaction.rollback();
+         return res.status(404).json({ 
+           error: 'House not found' 
+         });
+       }
+
+       const users = await User.findAll({
+         where: { houseId: houseId },
+         transaction
+       });
+
+       if (users.length === 0) {
+         await transaction.rollback();
+         return res.status(404).json({ 
+           error: 'No users found in this house' 
+         });
+       }
+
+       // Create notification metadata
+       const metadata = {
+         ...data,
+         adminId,
+         adminName,
+         houseId,
+         houseName: house.name,
+         source: 'admin_house_message',
+         timestamp: new Date().toISOString()
+       };
+
+       // Create notifications for all users in the house
+       const notificationPromises = users.map(user => 
+         sequelize.models.Notification.create({
+           userId: user.id,
+           title,
+           message,
+           type,
+           metadata,
+           isRead: false
+         }, { transaction })
+       );
+
+       const notifications = await Promise.all(notificationPromises);
+       
+       // Commit transaction first
+       await transaction.commit();
+
+       // Send push notifications after transaction commits (non-blocking)
+       const pushResults = [];
+       
+       for (const user of users) {
+         try {
+           const pushNotificationService = require('../services/pushNotificationService');
+           
+           await pushNotificationService.sendPushNotification(user, {
+             title,
+             message,
+             data: {
+               ...metadata,
+               notificationId: notifications.find(n => n.userId === user.id)?.id,
+               type
+             }
+           });
+           
+           pushResults.push({ userId: user.id, status: 'sent' });
+         } catch (pushError) {
+           console.error(`Failed to send push notification to user ${user.id}:`, pushError);
+           pushResults.push({ 
+             userId: user.id, 
+             status: 'failed', 
+             error: pushError.message 
+           });
+         }
+       }
+
+       // Return success response
+       return res.status(200).json({
+         message: 'Messages sent successfully to all users in house',
+         summary: {
+           houseId,
+           houseName: house.name,
+           usersInHouse: users.length,
+           notificationsCreated: notifications.length,
+           pushNotificationsSent: pushResults.filter(r => r.status === 'sent').length,
+           pushNotificationsFailed: pushResults.filter(r => r.status === 'failed').length
+         },
+         details: {
+           notificationsCreated: notifications.map(n => ({
+             id: n.id,
+             userId: n.userId,
+             title: n.title,
+             message: n.message
+           })),
+           pushResults
+         }
+       });
+
+     } catch (error) {
+       // Only rollback if transaction is still active
+       if (!transaction.finished) {
+         await transaction.rollback();
+       }
+       
+       console.error('Error sending admin message to house:', error);
+       return res.status(500).json({ 
+         error: 'Failed to send messages to house',
+         details: error.message 
+       });
+     }
+   }
+ };
+
+ module.exports = adminController;

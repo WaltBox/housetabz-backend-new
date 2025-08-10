@@ -6,6 +6,7 @@ const axios = require('axios');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const S3Service = require('../services/S3Service');
+const dashboardService = require('../services/dashboardService');
 
 
 const generateApiKey = () => {
@@ -41,13 +42,16 @@ const partnerController = {
       const apiKey = generateApiKey();
       const secretKey = generateSecretKey();
   
-      // Save the keys to the PartnerKeys table
+            // Save the keys to the PartnerKeys table
       await PartnerKey.create({
         partnerId: partner.id,
         api_key: apiKey,
         secret_key: secretKey,
       });
-  
+
+      // Clear partners cache since a new partner was created
+      dashboardService.constructor.clearPartnersCache();
+
       // 🔒 SECURITY: Only return secret_key ONCE, with clear warning
       res.status(201).json({
         message: 'Partner created successfully',
@@ -595,6 +599,9 @@ async getPartnerByApiKey(req, res) {
       }
   
       await partner.save();
+
+      // Clear partners cache since partner data was updated
+      dashboardService.constructor.clearPartnersCache();
       
       res.json({ 
         message: 'Marketplace settings updated successfully',
