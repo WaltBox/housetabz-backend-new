@@ -143,6 +143,9 @@ router.patch('/:serviceId/deactivate', authenticateUser, houseServiceController.
 // Reactivate a house service (only designated user) - MUST be before /:id route
 router.patch('/:serviceId/reactivate', authenticateUser, houseServiceController.reactivateHouseService);
 
+// Create manual bill for a house service (only designated user) - MUST be before /:id route
+router.post('/:serviceId/manual-bill', authenticateUser, houseServiceController.createManualBill);
+
 router.get('/:id', houseServiceController.getHouseServiceById);
 
 module.exports = router;

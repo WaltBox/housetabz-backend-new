@@ -1,5 +1,6 @@
-const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest, Task, Notification } = require('../models');
+const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest, Task, Notification, sequelize } = require('../models');
 const { sendPushNotification } = require('../services/pushNotificationService');
+const billService = require('../services/billService');
 
 // Create a new HouseService
 exports.createHouseService = async (req, res) => {
@@ -650,6 +651,156 @@ exports.reactivateHouseService = async (req, res) => {
 };
 
 /**
+ * Create a manual bill/charge for a House Service - Only designated user can create
+ * Used for unexpected charges like overage fees, late fees, or one-time charges
+ */
+exports.createManualBill = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { amount, description, dueDate } = req.body;
+    const userId = req.user.id;
+
+    console.log('🔍 MANUAL BILL DEBUG:', {
+      serviceId,
+      userId,
+      amount,
+      description,
+      dueDate
+    });
+
+    // Validate required fields
+    if (!amount || !description) {
+      return res.status(400).json({ 
+        error: 'Amount and description are required',
+        required: ['amount', 'description']
+      });
+    }
+
+    // Validate amount is positive
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ 
+        error: 'Amount must be a positive number',
+        providedAmount: amount
+      });
+    }
+
+    // Find the house service
+    const houseService = await HouseService.findByPk(serviceId);
+    
+    if (!houseService) {
+      return res.status(404).json({ error: 'House service not found' });
+    }
+
+    // Authorization checks
+    // 1. User must be in the same house as the service
+    if (req.user.houseId !== houseService.houseId) {
+      return res.status(403).json({ error: 'Unauthorized - service belongs to different house' });
+    }
+
+    // 2. User must be the designated user for this service
+    if (houseService.designatedUserId !== userId) {
+      return res.status(403).json({ 
+        error: 'Unauthorized - only the designated user can create bills for this service',
+        designatedUserId: houseService.designatedUserId,
+        currentUserId: userId
+      });
+    }
+
+    // 3. Service must be currently active
+    if (houseService.status !== 'active') {
+      return res.status(400).json({ 
+        error: `Cannot create bill for service - current status is '${houseService.status}'`,
+        currentStatus: houseService.status
+      });
+    }
+
+    // Parse due date if provided
+    let customDueDate = null;
+    if (dueDate) {
+      customDueDate = new Date(dueDate);
+      if (isNaN(customDueDate.getTime())) {
+        return res.status(400).json({ 
+          error: 'Invalid due date format. Use ISO format (e.g., 2025-01-15)',
+          providedDueDate: dueDate
+        });
+      }
+    }
+
+    // Start transaction
+    const transaction = await sequelize.transaction();
+    
+    try {
+      // Create the bill using the centralized bill service
+      console.log(`Creating manual bill for service ${houseService.id} with amount $${parsedAmount}`);
+      
+      const result = await billService.createBill({
+        service: houseService,
+        baseAmount: parsedAmount,
+        transaction,
+        customDueDate,
+        billType: 'manual' // Mark as manual bill
+      });
+
+      // Update bill metadata with manual bill details
+      await result.bill.update({
+        metadata: {
+          ...result.bill.metadata,
+          isManualBill: true,
+          description: description,
+          createdByUserId: userId,
+          createdByUsername: req.user.username,
+          createdAt: new Date().toISOString(),
+          source: 'manual_designated_user'
+        }
+      }, { transaction });
+
+      // Update bill name to include description
+      await result.bill.update({
+        name: `${houseService.name} - ${description}`
+      }, { transaction });
+
+      // Commit transaction
+      await transaction.commit();
+
+      console.log(`✅ Manual bill created successfully for ${houseService.name}: $${parsedAmount} - ${description}`);
+
+      // Send notifications to house members about the new manual charge
+      await sendManualBillNotifications(houseService, req.user, result.bill, description);
+
+      res.status(201).json({
+        message: 'Manual bill created successfully',
+        bill: {
+          id: result.bill.id,
+          name: result.bill.name,
+          amount: result.bill.amount,
+          baseAmount: result.bill.baseAmount,
+          serviceFeeTotal: result.bill.serviceFeeTotal,
+          dueDate: result.bill.dueDate,
+          status: result.bill.status,
+          description: description,
+          createdBy: req.user.username
+        },
+        charges: result.charges,
+        serviceId: houseService.id,
+        serviceName: houseService.name
+      });
+
+    } catch (billError) {
+      await transaction.rollback();
+      throw billError;
+    }
+
+  } catch (error) {
+    console.error('❌ ERROR in createManualBill:', error);
+    res.status(500).json({ 
+      error: 'Failed to create manual bill', 
+      details: error.message 
+    });
+  }
+};
+
+/**
  * Send notifications to all house members when a service is deactivated
  */
 async function sendServiceDeactivationNotifications(houseService, deactivatingUser) {
@@ -796,5 +947,86 @@ async function sendServiceReactivationNotifications(houseService, reactivatingUs
   } catch (error) {
     console.error('Error sending service reactivation notifications:', error);
     // Don't throw error - notifications are not critical to the reactivation process
+  }
+}
+
+/**
+ * Send notifications to all house members when a manual bill is created
+ */
+async function sendManualBillNotifications(houseService, creatingUser, bill, description) {
+  try {
+    // Get all house members
+    const houseMembers = await User.findAll({
+      where: { houseId: houseService.houseId },
+      attributes: ['id', 'username', 'email']
+    });
+
+    const serviceName = houseService.name;
+    const creatorName = creatingUser.username;
+    const billAmount = parseFloat(bill.amount).toFixed(2);
+
+    // Send notifications to all house members
+    for (const member of houseMembers) {
+      const isCreatingUser = member.id === creatingUser.id;
+      
+      // Different messages for the user who created the bill vs others
+      const message = isCreatingUser 
+        ? `You created a manual charge for ${serviceName}: ${description} ($${billAmount})`
+        : `${creatorName} added a charge for ${serviceName}: ${description} ($${billAmount})`;
+
+      const title = isCreatingUser 
+        ? 'Manual Charge Created'
+        : 'New Service Charge';
+
+      // Create database notification
+      const notification = await Notification.create({
+        userId: member.id,
+        title: title,
+        message: message,
+        isRead: false,
+        metadata: {
+          type: 'manual_bill_created',
+          serviceId: houseService.id,
+          serviceName: serviceName,
+          billId: bill.id,
+          amount: bill.amount,
+          description: description,
+          createdBy: creatingUser.id,
+          createdByUsername: creatorName,
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      // Send push notification
+      try {
+        await sendPushNotification(member, {
+          title: title,
+          message: message,
+          data: {
+            type: 'manual_bill_created',
+            serviceId: houseService.id,
+            serviceName: serviceName,
+            billId: bill.id,
+            notificationId: notification.id,
+            amount: bill.amount,
+            createdBy: creatingUser.id
+          }
+        });
+
+        console.log(`📱 Sent manual bill notification to ${member.username} for ${serviceName} charge`);
+      } catch (pushError) {
+        console.error(`Error sending push notification to ${member.username}:`, pushError);
+      }
+
+      // Add small delay between notifications to prevent spam
+      if (houseMembers.indexOf(member) < houseMembers.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`✅ Sent manual bill notifications for ${serviceName} to ${houseMembers.length} house members`);
+  } catch (error) {
+    console.error('Error sending manual bill notifications:', error);
+    // Don't throw error - notifications are not critical to the bill creation process
   }
 }
