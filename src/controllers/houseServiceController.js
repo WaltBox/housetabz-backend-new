@@ -1,4 +1,5 @@
-const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest, Task } = require('../models');
+const { HouseService, House, User, ServiceRequestBundle, TakeOverRequest, StagedRequest, Task, Notification } = require('../models');
+const { sendPushNotification } = require('../services/pushNotificationService');
 
 // Create a new HouseService
 exports.createHouseService = async (req, res) => {
@@ -463,3 +464,337 @@ exports.createFromServiceRequestBundle = async (serviceRequestBundleId) => {
     return null;
   }
 };
+
+/**
+ * Deactivate a House Service - Only designated user can deactivate
+ * This stops bill generation for the service
+ */
+exports.deactivateHouseService = async (req, res) => {
+  console.log('🚀 DEACTIVATE FUNCTION CALLED');
+  
+  try {
+    console.log('🔍 DEACTIVATE TRY BLOCK ENTERED');
+    
+    const { serviceId } = req.params;
+    const userId = req.user?.id;
+
+    console.log('🔍 DEACTIVATE DEBUG:', {
+      serviceId,
+      userId,
+      userExists: !!req.user,
+      userType: typeof userId,
+      userHouseId: req.user?.houseId,
+      requestPath: req.path,
+      requestMethod: req.method,
+      params: req.params,
+      body: req.body
+    });
+
+    // Find the house service
+    const houseService = await HouseService.findByPk(serviceId);
+    
+    console.log('🔍 SERVICE DEBUG:', {
+      found: !!houseService,
+      serviceId: houseService?.id,
+      serviceName: houseService?.name,
+      serviceStatus: houseService?.status,
+      designatedUserId: houseService?.designatedUserId,
+      serviceHouseId: houseService?.houseId
+    });
+    
+    if (!houseService) {
+      return res.status(404).json({ error: 'House service not found' });
+    }
+
+    // Authorization checks
+    // 1. User must be in the same house as the service
+    if (req.user.houseId !== houseService.houseId) {
+      return res.status(403).json({ error: 'Unauthorized - service belongs to different house' });
+    }
+
+    // 2. User must be the designated user for this service
+    if (houseService.designatedUserId !== userId) {
+      return res.status(403).json({ 
+        error: 'Unauthorized - only the designated user can deactivate this service',
+        designatedUserId: houseService.designatedUserId,
+        currentUserId: userId,
+        designatedUserIdType: typeof houseService.designatedUserId,
+        currentUserIdType: typeof userId
+      });
+    }
+
+    // 3. Service must be currently active
+    if (houseService.status !== 'active') {
+      return res.status(400).json({ 
+        error: `Cannot deactivate service - current status is '${houseService.status}'`,
+        currentStatus: houseService.status,
+        statusType: typeof houseService.status,
+        statusLength: houseService.status?.length,
+        debugInfo: {
+          serviceId: houseService.id,
+          serviceName: houseService.name,
+          rawStatus: JSON.stringify(houseService.status)
+        }
+      });
+    }
+
+    // Update the service status to inactive
+    await houseService.update({
+      status: 'inactive',
+      metadata: {
+        ...houseService.metadata,
+        deactivatedAt: new Date().toISOString(),
+        deactivatedBy: userId,
+        deactivationReason: 'Designated user deactivated service'
+      }
+    });
+
+    console.log(`House Service ${serviceId} deactivated by designated user ${userId}`);
+
+    // Send notifications to all house members
+    await sendServiceDeactivationNotifications(houseService, req.user);
+
+    res.status(200).json({
+      message: 'House service deactivated successfully',
+      serviceId: houseService.id,
+      serviceName: houseService.name,
+      previousStatus: 'active',
+      currentStatus: 'inactive',
+      deactivatedAt: new Date().toISOString(),
+      deactivatedBy: userId
+    });
+
+  } catch (error) {
+    console.error('❌ ERROR in deactivateHouseService:', error);
+    console.error('❌ ERROR STACK:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to deactivate house service', 
+      details: error.message,
+      stack: error.stack
+    });
+  }
+};
+
+/**
+ * Reactivate a House Service - Only designated user can reactivate
+ * This resumes bill generation for the service
+ */
+exports.reactivateHouseService = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const userId = req.user.id;
+
+    // Find the house service
+    const houseService = await HouseService.findByPk(serviceId);
+    
+    if (!houseService) {
+      return res.status(404).json({ error: 'House service not found' });
+    }
+
+    // Authorization checks
+    // 1. User must be in the same house as the service
+    if (req.user.houseId !== houseService.houseId) {
+      return res.status(403).json({ error: 'Unauthorized - service belongs to different house' });
+    }
+
+    // 2. User must be the designated user for this service
+    if (houseService.designatedUserId !== userId) {
+      return res.status(403).json({ 
+        error: 'Unauthorized - only the designated user can reactivate this service',
+        designatedUserId: houseService.designatedUserId,
+        currentUserId: userId
+      });
+    }
+
+    // 3. Service must be currently inactive
+    if (houseService.status !== 'inactive') {
+      return res.status(400).json({ 
+        error: `Cannot reactivate service - current status is '${houseService.status}'`,
+        currentStatus: houseService.status
+      });
+    }
+
+    // Update the service status to active
+    await houseService.update({
+      status: 'active',
+      metadata: {
+        ...houseService.metadata,
+        reactivatedAt: new Date().toISOString(),
+        reactivatedBy: userId,
+        reactivationReason: 'Designated user reactivated service'
+      }
+    });
+
+    console.log(`House Service ${serviceId} reactivated by designated user ${userId}`);
+
+    // Send notifications to all house members
+    await sendServiceReactivationNotifications(houseService, req.user);
+
+    res.status(200).json({
+      message: 'House service reactivated successfully',
+      serviceId: houseService.id,
+      serviceName: houseService.name,
+      previousStatus: 'inactive',
+      currentStatus: 'active',
+      reactivatedAt: new Date().toISOString(),
+      reactivatedBy: userId
+    });
+
+  } catch (error) {
+    console.error('Error reactivating house service:', error);
+    res.status(500).json({ 
+      error: 'Failed to reactivate house service', 
+      details: error.message 
+    });
+  }
+};
+
+/**
+ * Send notifications to all house members when a service is deactivated
+ */
+async function sendServiceDeactivationNotifications(houseService, deactivatingUser) {
+  try {
+    // Get all house members
+    const houseMembers = await User.findAll({
+      where: { houseId: houseService.houseId },
+      attributes: ['id', 'username', 'email']
+    });
+
+    const serviceName = houseService.name;
+    const deactivatorName = deactivatingUser.username;
+
+    // Send notifications to all house members (including the deactivating user for confirmation)
+    for (const member of houseMembers) {
+      const isDeactivatingUser = member.id === deactivatingUser.id;
+      
+      // Different messages for the user who deactivated vs others
+      const message = isDeactivatingUser 
+        ? `You have deactivated ${serviceName}. Bills will no longer be generated for this service.`
+        : `${deactivatorName} has deactivated ${serviceName}. Bills will no longer be generated for this service.`;
+
+      const title = isDeactivatingUser 
+        ? 'Service Deactivated'
+        : 'Roommate Deactivated Service';
+
+      // Create database notification
+      const notification = await Notification.create({
+        userId: member.id,
+        title: title,
+        message: message,
+        isRead: false,
+        metadata: {
+          type: 'service_deactivated',
+          serviceId: houseService.id,
+          serviceName: serviceName,
+          deactivatedBy: deactivatingUser.id,
+          deactivatedByUsername: deactivatorName,
+          deactivatedAt: new Date().toISOString()
+        }
+      });
+
+      // Send push notification
+      try {
+        await sendPushNotification(member, {
+          title: title,
+          message: message,
+          data: {
+            type: 'service_deactivated',
+            serviceId: houseService.id,
+            serviceName: serviceName,
+            notificationId: notification.id,
+            deactivatedBy: deactivatingUser.id
+          }
+        });
+
+        console.log(`📱 Sent deactivation notification to ${member.username} for ${serviceName}`);
+      } catch (pushError) {
+        console.error(`Error sending push notification to ${member.username}:`, pushError);
+      }
+
+      // Add small delay between notifications to prevent spam
+      if (houseMembers.indexOf(member) < houseMembers.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`✅ Sent deactivation notifications for ${serviceName} to ${houseMembers.length} house members`);
+  } catch (error) {
+    console.error('Error sending service deactivation notifications:', error);
+    // Don't throw error - notifications are not critical to the deactivation process
+  }
+}
+
+/**
+ * Send notifications to all house members when a service is reactivated
+ */
+async function sendServiceReactivationNotifications(houseService, reactivatingUser) {
+  try {
+    // Get all house members
+    const houseMembers = await User.findAll({
+      where: { houseId: houseService.houseId },
+      attributes: ['id', 'username', 'email']
+    });
+
+    const serviceName = houseService.name;
+    const reactivatorName = reactivatingUser.username;
+
+    // Send notifications to all house members (including the reactivating user for confirmation)
+    for (const member of houseMembers) {
+      const isReactivatingUser = member.id === reactivatingUser.id;
+      
+      // Different messages for the user who reactivated vs others
+      const message = isReactivatingUser 
+        ? `You have reactivated ${serviceName}. Bills will resume being generated for this service.`
+        : `${reactivatorName} has reactivated ${serviceName}. Bills will resume being generated for this service.`;
+
+      const title = isReactivatingUser 
+        ? 'Service Reactivated'
+        : 'Roommate Reactivated Service';
+
+      // Create database notification
+      const notification = await Notification.create({
+        userId: member.id,
+        title: title,
+        message: message,
+        isRead: false,
+        metadata: {
+          type: 'service_reactivated',
+          serviceId: houseService.id,
+          serviceName: serviceName,
+          reactivatedBy: reactivatingUser.id,
+          reactivatedByUsername: reactivatorName,
+          reactivatedAt: new Date().toISOString()
+        }
+      });
+
+      // Send push notification
+      try {
+        await sendPushNotification(member, {
+          title: title,
+          message: message,
+          data: {
+            type: 'service_reactivated',
+            serviceId: houseService.id,
+            serviceName: serviceName,
+            notificationId: notification.id,
+            reactivatedBy: reactivatingUser.id
+          }
+        });
+
+        console.log(`📱 Sent reactivation notification to ${member.username} for ${serviceName}`);
+      } catch (pushError) {
+        console.error(`Error sending push notification to ${member.username}:`, pushError);
+      }
+
+      // Add small delay between notifications to prevent spam
+      if (houseMembers.indexOf(member) < houseMembers.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`✅ Sent reactivation notifications for ${serviceName} to ${houseMembers.length} house members`);
+  } catch (error) {
+    console.error('Error sending service reactivation notifications:', error);
+    // Don't throw error - notifications are not critical to the reactivation process
+  }
+}

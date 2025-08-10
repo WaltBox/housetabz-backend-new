@@ -1,8 +1,12 @@
+console.log('🔥 HOUSE SERVICE ROUTES FILE LOADED');
+
 const express = require('express');
 const router = express.Router();
 const houseServiceController = require('../controllers/houseServiceController');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { requireOnboardingForHouse } = require('../middleware/onboardingProtection');
+
+console.log('🔥 DEACTIVATE FUNCTION TYPE:', typeof houseServiceController.deactivateHouseService);
 
 router.get('/house/:houseId/with-data', authenticateUser, requireOnboardingForHouse, houseServiceController.getHouseServicesWithLedgersAndSummaries);
 
@@ -127,6 +131,18 @@ router.get('/', houseServiceController.getAllHouseServices);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+// Test route to verify routing works
+router.patch('/:serviceId/test', (req, res) => {
+  console.log('🧪 TEST ROUTE HIT:', req.params);
+  res.json({ message: 'Test route works', serviceId: req.params.serviceId });
+});
+
+// Deactivate a house service (only designated user) - MUST be before /:id route
+router.patch('/:serviceId/deactivate', authenticateUser, houseServiceController.deactivateHouseService);
+
+// Reactivate a house service (only designated user) - MUST be before /:id route
+router.patch('/:serviceId/reactivate', authenticateUser, houseServiceController.reactivateHouseService);
+
 router.get('/:id', houseServiceController.getHouseServiceById);
 
 module.exports = router;
