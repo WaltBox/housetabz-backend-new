@@ -324,6 +324,167 @@ class StripeService {
       throw error;
     }
   }
+
+  /**
+   * Creates a payment intent for consent-based payments (authorize but don't capture)
+   * Used when users accept staged requests - they consent to be charged later
+   */
+  async createPaymentIntentForConsent({ amount, userId, paymentMethodId, metadata }, idempotencyKey) {
+    try {
+      const stripeCustomer = await this.getOrCreateCustomer(userId);
+      
+      // Get payment method (use provided one or default)
+      let selectedPaymentMethod = paymentMethodId;
+      if (!selectedPaymentMethod) {
+        const paymentMethod = await PaymentMethod.findOne({
+          where: { userId, isDefault: true },
+          order: [['createdAt', 'DESC']]
+        });
+
+        if (!paymentMethod) {
+          const fallbackPaymentMethod = await PaymentMethod.findOne({
+            where: { userId },
+            order: [['createdAt', 'DESC']]
+          });
+
+          if (!fallbackPaymentMethod) {
+            throw new Error('No payment method found for user');
+          }
+
+          selectedPaymentMethod = fallbackPaymentMethod.stripePaymentMethodId;
+        } else {
+          selectedPaymentMethod = paymentMethod.stripePaymentMethodId;
+        }
+      }
+
+      // Check if the selected payment method is a fake HouseTabz payment method
+      if (selectedPaymentMethod.includes('housetabz')) {
+        // Find a real payment method to use instead
+        const realPaymentMethod = await PaymentMethod.findOne({
+          where: { 
+            userId, 
+            stripePaymentMethodId: { [Op.not]: { [Op.like]: '%housetabz%' } }
+          },
+          order: [['isDefault', 'DESC'], ['createdAt', 'DESC']]
+        });
+
+        if (!realPaymentMethod) {
+          throw new Error('Cannot process payment with fake HouseTabz payment method and no real payment methods available');
+        }
+
+        selectedPaymentMethod = realPaymentMethod.stripePaymentMethodId;
+        console.log(`Replaced fake HouseTabz payment method with real payment method for user ${userId}: ${selectedPaymentMethod}`);
+      }
+
+      // Create payment intent with manual capture - this authorizes but doesn't charge
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Convert dollars to cents
+        currency: 'usd',
+        customer: stripeCustomer.stripeCustomerId,
+        payment_method: selectedPaymentMethod,
+        capture_method: 'manual', // 🔑 KEY: Don't charge immediately
+        confirmation_method: 'automatic',
+        confirm: true,
+        metadata,
+        off_session: true,
+        payment_method_types: ['card']
+      }, { idempotencyKey });
+
+      console.log(`Payment intent created for consent - User ${userId}: ${paymentIntent.id} (Status: ${paymentIntent.status})`);
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error creating payment intent for consent:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Captures a previously authorized payment intent
+   * Used when all roommates have consented and we're ready to charge everyone
+   */
+  async capturePaymentIntent(paymentIntentId, amountToCapture = null) {
+    try {
+      const captureParams = {};
+      if (amountToCapture) {
+        captureParams.amount_to_capture = Math.round(amountToCapture * 100);
+      }
+
+      const paymentIntent = await stripe.paymentIntents.capture(paymentIntentId, captureParams);
+      console.log(`Payment intent captured: ${paymentIntentId} (Status: ${paymentIntent.status})`);
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error capturing payment intent:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancels an uncaptured payment intent
+   * Used when someone declines the staged request
+   */
+  async cancelPaymentIntent(paymentIntentId) {
+    try {
+      const paymentIntent = await stripe.paymentIntents.cancel(paymentIntentId);
+      console.log(`Payment intent cancelled: ${paymentIntentId} (Status: ${paymentIntent.status})`);
+      return paymentIntent;
+    } catch (error) {
+      console.error('Error cancelling payment intent:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Captures multiple payment intents simultaneously
+   * Used for the final step when everyone has consented
+   */
+  async captureMultiplePaymentIntents(paymentIntentIds) {
+    try {
+      const capturePromises = paymentIntentIds.map(id => this.capturePaymentIntent(id));
+      const results = await Promise.allSettled(capturePromises);
+      
+      const successful = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+      const failed = results.filter(r => r.status === 'rejected').map((r, index) => ({
+        paymentIntentId: paymentIntentIds[index],
+        error: r.reason
+      }));
+
+      if (failed.length > 0) {
+        console.error('Some payment intents failed to capture:', failed);
+        // In a real scenario, you might want to handle partial failures differently
+        throw new Error(`Failed to capture ${failed.length} out of ${paymentIntentIds.length} payment intents`);
+      }
+
+      console.log(`Successfully captured ${successful.length} payment intents`);
+      return successful;
+    } catch (error) {
+      console.error('Error capturing multiple payment intents:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancels multiple payment intents simultaneously
+   * Used when someone declines and we need to cancel all pending authorizations
+   */
+  async cancelMultiplePaymentIntents(paymentIntentIds) {
+    try {
+      const cancelPromises = paymentIntentIds.map(id => this.cancelPaymentIntent(id));
+      const results = await Promise.allSettled(cancelPromises);
+      
+      const successful = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+      const failed = results.filter(r => r.status === 'rejected').map((r, index) => ({
+        paymentIntentId: paymentIntentIds[index],
+        error: r.reason
+      }));
+
+      // For cancellations, we're more lenient with failures since some might already be expired
+      console.log(`Cancelled ${successful.length} payment intents, ${failed.length} failed`);
+      return { successful, failed };
+    } catch (error) {
+      console.error('Error cancelling multiple payment intents:', error);
+      throw error;
+    }
+  }
 }
 
 const stripeService = new StripeService();

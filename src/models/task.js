@@ -59,12 +59,17 @@ module.exports = (sequelize, DataTypes) => {
       }
     },
     paymentStatus: {
-      type: DataTypes.ENUM('not_required', 'pending', 'completed'),
+      type: DataTypes.ENUM('not_required', 'pending', 'authorized', 'completed', 'cancelled'),
       defaultValue: 'not_required'
     },
     paymentTransactionId: {
       type: DataTypes.STRING,
       allowNull: true
+    },
+    stripePaymentIntentId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Stripe Payment Intent ID for consent-based payments'
     }
   });
 
@@ -135,7 +140,19 @@ module.exports = (sequelize, DataTypes) => {
             if (bundle.virtualCardRequest) {
               await bundle.virtualCardRequest.update({ status: 'rejected' }, { transaction });
             }
-          } else if (task.status === true) {
+            
+            // Cancel payment intents when request is rejected
+            // Note: We'll do this after transaction commits to avoid blocking the transaction
+            transaction.afterCommit(async () => {
+              try {
+                const taskController = require('../controllers/taskController');
+                await taskController.cancelAllPaymentIntents(bundle.id);
+              } catch (error) {
+                console.error('Error cancelling payment intents after rejection:', error);
+              }
+            });
+          } else if (task.status === true && (!task.paymentRequired || task.paymentStatus === 'completed')) {
+            // Only update bundle status if task is complete AND either no payment required OR payment is completed
             await bundle.updateStatusIfAllTasksCompleted({ transaction });
           }
         }

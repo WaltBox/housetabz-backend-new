@@ -10,6 +10,7 @@ const {
 } = require('../models');
 const { v4: uuidv4 } = require('uuid');
 const webhookService = require('../services/webhookService');
+const stripeService = require('../services/StripeService');
 
 const stagedRequestController = {
   
@@ -57,6 +58,8 @@ const stagedRequestController = {
       const upfrontAmount = serviceType === 'cleaning' ? 
         estimatedAmount : // For cleaning, full amount upfront
         requiredUpfrontPayment; // For energy, just the security deposit if any
+      
+      console.log(`Service: ${serviceName}, Type: ${serviceType}, EstimatedAmount: ${estimatedAmount}, RequiredUpfront: ${requiredUpfrontPayment}, UpfrontAmount: ${upfrontAmount}`);
    
       // Create the StagedRequest
       const stagedRequest = await StagedRequest.create({
@@ -127,17 +130,55 @@ const stagedRequestController = {
           userId: roommate.id,
           serviceRequestBundleId: serviceRequestBundle.id,
           type: 'service_request',
-          status: isCreator ? !paymentRequired : false, // Only true for creator if no payment needed
+          status: isCreator ? true : false, // Creator task is always complete (they created it)
           response: isCreator ? 'accepted' : 'pending',
           paymentRequired,
           paymentAmount: individualPaymentAmount,
-          paymentStatus: paymentRequired ? 'pending' : 'not_required'
+          paymentStatus: paymentRequired ? (isCreator ? 'pending' : 'pending') : 'not_required' // Will be updated for creator below
         };
       });
    
       // Create all tasks in the database
       const createdTasks = await Task.bulkCreate(tasks, { transaction, individualHooks: true });
 
+      // For any service requiring upfront payment, creator immediately gives consent by creating payment intent
+      // Do this BEFORE committing the transaction
+      if (upfrontAmount) {
+        try {
+          const creatorTask = createdTasks.find(task => String(task.userId) === String(userId));
+          if (creatorTask && creatorTask.paymentRequired) {
+            console.log(`Creating payment intent for creator consent - User ${userId}, Amount: ${creatorTask.paymentAmount}`);
+            
+            const paymentIntent = await stripeService.createPaymentIntentForConsent({
+              amount: creatorTask.paymentAmount,
+              userId: userId,
+              metadata: { 
+                taskId: creatorTask.id,
+                serviceRequestBundleId: serviceRequestBundle.id,
+                type: 'creator_consent',
+                serviceName: serviceName
+              }
+            }, `creator-${creatorTask.id}-${Date.now()}`);
+
+            // Update creator's task with authorization within the transaction
+            await creatorTask.update({
+              paymentStatus: 'authorized',
+              stripePaymentIntentId: paymentIntent.id,
+              status: true // Creator task is complete - they consented
+            }, { transaction });
+
+            console.log(`Creator consent recorded - Payment Intent: ${paymentIntent.id}`);
+          }
+        } catch (creatorConsentError) {
+          console.error('Error creating creator consent payment intent:', creatorConsentError);
+          // Rollback transaction if creator consent fails
+          await transaction.rollback();
+          return res.status(500).json({
+            error: 'Failed to create payment authorization for creator',
+            details: creatorConsentError.message
+          });
+        }
+      }
    
       // Commit transaction
       await transaction.commit();
