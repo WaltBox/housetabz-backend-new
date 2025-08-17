@@ -2,6 +2,7 @@
 const stripeService = require('../services/StripeService');
 const { createLogger } = require('../utils/logger');
 const { PaymentMethod } = require('../models');
+const { invalidateUserPaymentCache } = require('../middleware/paymentOptimization');
 
 const logger = createLogger('payment-method-controller');
 
@@ -55,6 +56,9 @@ exports.completeSetupIntent = async (req, res) => {
       // Don't fail the payment method creation if onboarding step update fails
     }
 
+    // Invalidate payment method cache
+    invalidateUserPaymentCache(userId);
+    
     res.json({
       message: 'Payment method added successfully',
       paymentMethod
@@ -130,6 +134,9 @@ exports.setDefaultPaymentMethod = async (req, res) => {
     await stripeService.setDefaultPaymentMethod(userId, paymentMethodDbId);
     const updatedMethods = await stripeService.getPaymentMethods(userId);
 
+    // Invalidate payment method cache
+    invalidateUserPaymentCache(userId);
+
     res.json({
       message: 'Default payment method updated',
       paymentMethods: updatedMethods
@@ -175,6 +182,9 @@ exports.removePaymentMethod = async (req, res) => {
 
     await stripeService.removePaymentMethod(userId, id);
     const updatedMethods = await stripeService.getPaymentMethods(userId);
+
+    // Invalidate payment method cache
+    invalidateUserPaymentCache(userId);
 
     res.json({
       message: 'Payment method removed successfully',

@@ -3,6 +3,11 @@ const router = express.Router({ mergeParams: true });
 const chargeController = require('../controllers/chargeController');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { catchAsync } = require('../middleware/errorHandler');
+const { 
+  cacheCharges, 
+  optimizePaymentConnection, 
+  monitorPaymentPerformance 
+} = require('../middleware/paymentOptimization');
 /**
  * @swagger
  * /users/{userId}/charges:
@@ -36,7 +41,7 @@ const { catchAsync } = require('../middleware/errorHandler');
  *                     type: string
  *                     enum: [pending, processing, paid, failed]
  */
-router.get('/:userId/charges', authenticateUser, catchAsync(chargeController.getChargesForUser));
+router.get('/:userId/charges', authenticateUser, optimizePaymentConnection, monitorPaymentPerformance, cacheCharges, catchAsync(chargeController.getChargesForUser));
 
 /**
  * @swagger
@@ -71,7 +76,42 @@ router.get('/:userId/charges', authenticateUser, catchAsync(chargeController.get
  *                     type: string
  *                     enum: [pending, processing, failed]
  */
-router.get('/:userId/charges/unpaid', authenticateUser, catchAsync(chargeController.getUnpaidChargesForUser));
+router.get('/:userId/charges/unpaid', authenticateUser, optimizePaymentConnection, monitorPaymentPerformance, cacheCharges, catchAsync(chargeController.getUnpaidChargesForUser));
+
+/**
+ * @swagger
+ * /users/{userId}/charges/paid:
+ *   get:
+ *     summary: Get all paid charges for a specific user
+ *     tags: [Charges]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: The user ID
+ *     responses:
+ *       200:
+ *         description: List of all paid charges for the user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   userId:
+ *                     type: integer
+ *                   amount:
+ *                     type: integer
+ *                   status:
+ *                     type: string
+ *                     enum: [paid]
+ */
+router.get('/:userId/charges/paid', authenticateUser, optimizePaymentConnection, monitorPaymentPerformance, cacheCharges, catchAsync(chargeController.getPaidChargesForUser));
 
 /**
  * @swagger
@@ -112,6 +152,6 @@ router.get('/:userId/charges/unpaid', authenticateUser, catchAsync(chargeControl
  *       404:
  *         description: Charge not found
  */
-router.get('/:userId/charges/:id', authenticateUser, catchAsync(chargeController.getChargeById));
+router.get('/:userId/charges/:id', authenticateUser, optimizePaymentConnection, monitorPaymentPerformance, catchAsync(chargeController.getChargeById));
 
 module.exports = router;

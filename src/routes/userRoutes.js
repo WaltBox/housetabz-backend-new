@@ -6,6 +6,10 @@ const userController = require('../controllers/userController');
 const paymentController = require('../controllers/paymentController');
 const { authenticateUser } = require('../middleware/auth/userAuth');
 const { catchAsync } = require('../middleware/errorHandler');
+const { 
+  optimizePaymentConnection, 
+  monitorPaymentPerformance 
+} = require('../middleware/paymentOptimization');
 
 router.use(authenticateUser);
 
@@ -37,8 +41,8 @@ router.use(authenticateUser);
  *       404:
  *         description: User not found
  */
-router.get('/:id/payments', catchAsync(paymentController.getUserPayments));
-router.get('/:id/dashboard', catchAsync(userController.getDashboardData));
+router.get('/:id/payments', optimizePaymentConnection, monitorPaymentPerformance, catchAsync(paymentController.getUserPayments));
+router.get('/:id/dashboard', optimizePaymentConnection, monitorPaymentPerformance, catchAsync(userController.getDashboardData));
 // Existing user routes:
 router.get('/:id', catchAsync(userController.getUser));
 router.get('/', catchAsync(userController.getAllUsers));

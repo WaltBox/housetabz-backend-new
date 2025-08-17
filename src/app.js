@@ -170,6 +170,7 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/referral-program', referrerRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/payment-methods', paymentMethodRoutes);
+app.use('/api/payment-system', require('./routes/paymentHealthRoutes'));
 app.use('/confirm-request', confirmRequestRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/virtual-card-requests', virtualCardRequestRoutes);

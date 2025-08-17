@@ -94,3 +94,33 @@ exports.getUnpaidChargesForUser = async (req, res, next) => {
     next(error);
   }
 };
+
+// Get only paid charges for a specific user
+exports.getPaidChargesForUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    
+    // Authorization check
+    if (req.user.id != userId) {
+      return res.status(403).json({ message: 'Unauthorized access to charges' });
+    }
+    
+    const charges = await Charge.findAll({
+      where: { 
+        userId,
+        status: 'paid'
+      },
+      attributes: ['id', 'amount', 'name', 'status', 'dueDate', 'metadata'],
+      include: {
+        model: Bill,
+        attributes: ['id', 'name'],
+      },
+      order: [['dueDate', 'DESC']] // Most recent paid charges first
+    });
+    
+    res.status(200).json(charges);
+  } catch (error) {
+    logger.error('Error fetching paid charges for user:', error);
+    next(error);
+  }
+};
