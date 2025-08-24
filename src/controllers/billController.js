@@ -469,4 +469,40 @@ exports.getUserVariableServices = async (req, res) => {
   }
 };
 
+/**
+ * CRITICAL SAFEGUARD: Manually trigger check for missing bill submissions
+ * Admin endpoint to run the safeguard check on demand
+ */
+exports.checkMissingBillSubmissions = async (req, res, next) => {
+  try {
+    console.log('🔍 Manual trigger: Checking for missing bill submissions');
+    
+    const result = await billService.checkAndCreateMissingBillSubmissions();
+    
+    // Log critical information
+    if (result.createdCount > 0) {
+      console.error(`🚨 MANUAL CHECK ALERT: ${result.createdCount} missing bill submissions were created!`);
+    }
+    
+    res.status(200).json({
+      message: 'Missing bill submission check completed',
+      summary: {
+        totalServices: result.totalServices,
+        createdCount: result.createdCount,
+        skippedCount: result.skippedCount,
+        errorCount: result.errorCount
+      },
+      details: result.results,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in manual missing bill submission check:', error);
+    res.status(500).json({ 
+      error: 'Failed to check for missing bill submissions', 
+      details: error.message 
+    });
+  }
+};
+
 module.exports = exports;

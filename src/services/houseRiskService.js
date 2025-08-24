@@ -116,6 +116,7 @@ const houseRiskService = {
       },
       include: [{
         model: User,
+        as: 'User',
         where: { houseId },
         attributes: ['id']
       }],
@@ -235,14 +236,14 @@ const houseRiskService = {
   },
 
   /**
-   * Calculate time multiplier for late charges
+   * Calculate time multiplier for late charges - softer first week penalties
    */
   calculateTimeMultiplier(daysPastDue) {
-    if (daysPastDue <= GRACE_PERIOD_DAYS) return 1.0;
-    if (daysPastDue <= 7) return 1.2;
-    if (daysPastDue <= 14) return 1.5;
-    if (daysPastDue <= 30) return 2.0;
-    return 3.0; // 30+ days late gets maximum penalty
+    if (daysPastDue <= GRACE_PERIOD_DAYS) return 1.0;  // Days 1-3: No penalty
+    if (daysPastDue <= 7) return 1.1;                  // Days 4-7: Very light penalty (was 1.2)
+    if (daysPastDue <= 14) return 1.3;                 // Days 8-14: Light penalty (was 1.5)
+    if (daysPastDue <= 30) return 1.8;                 // Days 15-30: Moderate penalty (was 2.0)
+    return 2.5; // 30+ days late gets heavy penalty (was 3.0)
   },
 
   /**
@@ -323,7 +324,7 @@ const houseRiskService = {
   // ============================================================================
 
   /**
-   * Apply exponential moving average to HSI for stability
+   * Apply directional smoothing to HSI - faster drops, slower rises
    */
   async applySmoothingToHSI(houseId, measuredHsi, transaction) {
     // Load previous HSI for smoothing
@@ -335,11 +336,33 @@ const houseRiskService = {
 
     const previousHsi = existing ? existing.score : measuredHsi;
 
-    // Apply exponential moving average
+    // Directional smoothing: faster drops for severe issues, gradual rises
+    let alpha;
+    if (measuredHsi < previousHsi) {
+      // Calculate severity of decline
+      const declineAmount = previousHsi - measuredHsi;
+      
+      if (declineAmount >= 20) {
+        // Severe decline (20+ points): Very fast response
+        alpha = 0.6; // 60% move toward new score
+      } else if (declineAmount >= 10) {
+        // Moderate decline (10-19 points): Fast response  
+        alpha = 0.4; // 40% move toward new score
+      } else {
+        // Minor decline (<10 points): Moderate response
+        alpha = 0.25; // 25% move toward new score
+      }
+    } else {
+      // Improving performance: lower alpha for gradual rises
+      alpha = 0.15; // 15% move toward new (higher) score
+    }
+
+    // Apply directional exponential moving average
     const smoothedHsi = Math.round(
-      SMOOTHING_ALPHA * measuredHsi +
-      (1 - SMOOTHING_ALPHA) * previousHsi
+      alpha * measuredHsi + (1 - alpha) * previousHsi
     );
+
+    console.log(`📈 HSI Smoothing: Previous=${previousHsi}, Measured=${measuredHsi}, Alpha=${alpha}, Smoothed=${smoothedHsi}`);
 
     return Math.min(Math.max(smoothedHsi, 0), 100);
   },

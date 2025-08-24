@@ -518,9 +518,9 @@ async processBatchPayment(req, res) {
           userId: userId,
           paymentId: payment.id
         });
-        console.log('✅ Urgent messages updated after payment');
+        console.log('✅ Urgent messages updated after batch payment');
       } catch (urgentError) {
-        console.error('❌ Error updating urgent messages after payment:', urgentError);
+        console.error('❌ Error updating urgent messages after batch payment:', urgentError);
         // Don't fail the payment if urgent message update fails
       }
       

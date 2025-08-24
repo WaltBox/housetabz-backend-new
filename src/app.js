@@ -179,6 +179,7 @@ app.use('/api/meme-qr-codes', memeQRCodeRoutes);
 app.use('/api', userFinanceRoutes);
 app.use('/api', houseFinanceRoutes);
 app.use('/api', billSubmissionRoutes);
+app.use('/api/admin/bill-submissions', require('./routes/billSubmissionMonitoringRoutes'));
 app.use('/api', feedbackRoutes );
 app.use('/api', reminderRoutes);
 app.use('/api', HouseServiceLedgerRoutes);

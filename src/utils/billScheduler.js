@@ -52,7 +52,23 @@ function startBillSchedulers() {
     }
   });
 
-  console.log('Bill schedulers started');
+  // CRITICAL SAFEGUARD: Check for missing bill submissions every day at 6 AM
+  cron.schedule('20 12 * * *', async () => {
+    console.log('🔍 Running CRITICAL SAFEGUARD: Missing bill submission check');
+    try {
+      const result = await billService.checkAndCreateMissingBillSubmissions();
+      console.log('Missing bill submission check complete:', result);
+      
+      // Log critical alerts if any submissions were created
+      if (result.createdCount > 0) {
+        console.error(`🚨 ALERT: ${result.createdCount} missing bill submissions were created by safeguard!`);
+      }
+    } catch (error) {
+      console.error('❌ CRITICAL ERROR in missing bill submission safeguard:', error);
+    }
+  });
+
+  console.log('Bill schedulers started (including critical safeguards)');
 }
 
 module.exports = {

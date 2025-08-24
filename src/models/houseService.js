@@ -62,7 +62,16 @@ module.exports = (sequelize, DataTypes) => {
     reminderDay: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      validate: { min: 1, max: 31 }
+      validate: { 
+        min: 1, 
+        max: 31,
+        // Custom validation to ensure variable_recurring services have reminderDay
+        isRequiredForVariableRecurring(value) {
+          if (this.type === 'variable_recurring' && (value === null || value === undefined)) {
+            throw new Error('reminderDay is required for variable_recurring services');
+          }
+        }
+      }
     },
 
     accountNumber: {

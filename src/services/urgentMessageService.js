@@ -33,7 +33,25 @@ async function updateUrgentMessagesForPayment(paymentData) {
     const chargeIds = paymentData.chargeIds || [];
     if (chargeIds.length === 0) return;
     
-    // Get affected charges with user and house info
+    // 1. IMMEDIATE RESOLUTION: Resolve any messages directly referencing paid charges
+    const resolvedCount = await UrgentMessage.update(
+      { 
+        isResolved: true,
+        body: sequelize.fn('CONCAT', sequelize.col('body'), ' (RESOLVED - Charge paid)')
+      },
+      { 
+        where: { 
+          chargeId: { [Op.in]: chargeIds },
+          isResolved: false 
+        } 
+      }
+    );
+    
+    if (resolvedCount[0] > 0) {
+      console.log(`✅ Immediately resolved ${resolvedCount[0]} messages for paid charges`);
+    }
+    
+    // 2. Get affected charges with user and house info for house-level updates
     const affectedCharges = await Charge.findAll({
       where: { id: { [Op.in]: chargeIds } },
       include: [
@@ -51,15 +69,15 @@ async function updateUrgentMessagesForPayment(paymentData) {
     
     if (affectedCharges.length === 0) return;
     
-    // Get unique house IDs that need message updates
+    // 3. Get unique house IDs that need message updates
     const houseIds = [...new Set(affectedCharges.map(charge => charge.User.houseId))];
     
-    // Update messages for each affected house
+    // 4. Update/resolve house-level messages for each affected house
     for (const houseId of houseIds) {
       await refreshUrgentMessagesForHouse(houseId);
     }
     
-    console.log(`Updated urgent messages for ${houseIds.length} houses after payment`);
+    console.log(`✅ Updated urgent messages for ${houseIds.length} houses after payment`);
   } catch (error) {
     console.error('Error updating urgent messages for payment:', error);
   }

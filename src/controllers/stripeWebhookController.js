@@ -63,7 +63,12 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
     try {
       // Get the payment that was just completed
       const payment = await Payment.findOne({
-        where: { stripePaymentIntentId: paymentIntent.id }
+        where: { stripePaymentIntentId: paymentIntent.id },
+        include: [{ 
+          model: require('../models').User, 
+          as: 'user',
+          attributes: ['id', 'houseId'] 
+        }]
       });
       
       if (payment && payment.metadata && payment.metadata.chargeIds) {
@@ -78,6 +83,13 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         });
         
         logger.info(`✅ Urgent messages updated for payment ${payment.id} via webhook`);
+        
+        // 🔥 NEW: Update HSI after webhook payment confirmation
+        if (payment.user && payment.user.houseId) {
+          const hsiService = require('../services/houseRiskService');
+          await hsiService.updateHouseHSI(payment.user.houseId);
+          logger.info(`✅ HSI updated for house ${payment.user.houseId} via webhook`);
+        }
       }
     } catch (urgentError) {
       logger.error('❌ Error updating urgent messages via webhook:', urgentError);

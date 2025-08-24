@@ -530,12 +530,26 @@ const billService = {
       const today = new Date();
       const currentDay = today.getDate();
       
+      console.log('🔄 BILL SUBMISSION SCHEDULER RUNNING');
+      console.log(`📅 Date: ${today.toISOString()}`);
+      console.log(`📅 Current day of month: ${currentDay}`);
+      
       // Find all active variable recurring services where reminderDay matches today
+      // OR where reminderDay is NULL (these will be handled by the safeguard)
       const services = await HouseService.findAll({
         where: {
           status: 'active',
           type: 'variable_recurring',
-          reminderDay: currentDay
+          [Op.or]: [
+            { reminderDay: currentDay },
+            // Also process services with NULL reminderDay if they're due soon
+            {
+              reminderDay: null,
+              dueDay: {
+                [Op.between]: [currentDay, currentDay + 7] // Due within a week
+              }
+            }
+          ]
         },
         include: [{
           model: User,
@@ -545,6 +559,16 @@ const billService = {
       });
       
       console.log(`Found ${services.length} variable recurring services for bill submission requests`);
+      console.log(`🔍 DETAILED ANALYSIS: Current day is ${currentDay}`);
+      
+      // Log detailed information about each service found
+      services.forEach(service => {
+        console.log(`  📋 Service ${service.id} (${service.name}):`);
+        console.log(`     - Reminder Day: ${service.reminderDay || 'NULL'}`);
+        console.log(`     - Due Day: ${service.dueDay || 'NULL'}`);
+        console.log(`     - Designated User: ${service.designatedUser ? service.designatedUser.username : 'NONE'}`);
+        console.log(`     - Created: ${service.createdAt}`);
+      });
       
       const results = [];
       
@@ -667,6 +691,221 @@ const billService = {
       };
     } catch (error) {
       console.error('Error generating bill submission requests:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * CRITICAL SAFEGUARD: Check for and create missing bill submissions
+   * This function identifies variable recurring services that should have
+   * bill submissions but don't, preventing missed due dates
+   */
+  async checkAndCreateMissingBillSubmissions() {
+    try {
+      const today = new Date();
+      const currentDay = today.getDate();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      
+      console.log('🔍 CRITICAL SAFEGUARD: Checking for missing bill submissions...');
+      
+      // Find ALL active variable recurring services
+      const allVariableServices = await HouseService.findAll({
+        where: {
+          status: 'active',
+          type: 'variable_recurring'
+        },
+        include: [{
+          model: User,
+          as: 'designatedUser',
+          attributes: ['id', 'username', 'email']
+        }]
+      });
+      
+      console.log(`🔍 Found ${allVariableServices.length} total active variable recurring services`);
+      
+      const results = [];
+      let createdCount = 0;
+      let skippedCount = 0;
+      let errorCount = 0;
+      
+      for (const service of allVariableServices) {
+        try {
+          // Skip services without designated users
+          if (!service.designatedUser) {
+            console.log(`⚠️  Service ${service.id} (${service.name}) has no designated user, skipping`);
+            results.push({
+              serviceId: service.id,
+              serviceName: service.name,
+              success: false,
+              error: 'No designated user',
+              action: 'skipped'
+            });
+            skippedCount++;
+            continue;
+          }
+          
+          // Check if bill submission already exists for this month
+          const existingSubmission = await BillSubmission.findOne({
+            where: {
+              houseServiceId: service.id,
+              createdAt: {
+                [Op.gte]: firstDayOfMonth
+              }
+            }
+          });
+          
+          // Check if bill already exists for this month
+          const existingBill = await Bill.findOne({
+            where: {
+              houseService_id: service.id,
+              billType: 'variable_recurring',
+              createdAt: {
+                [Op.gte]: firstDayOfMonth
+              }
+            }
+          });
+          
+          // Skip if submission or bill already exists
+          if (existingSubmission || existingBill) {
+            results.push({
+              serviceId: service.id,
+              serviceName: service.name,
+              success: true,
+              action: 'already_exists',
+              submissionId: existingSubmission?.id,
+              billId: existingBill?.id
+            });
+            skippedCount++;
+            continue;
+          }
+          
+          // CRITICAL: Check if we're past the due date without a submission
+          const dueDay = service.dueDay || 1;
+          const dueDate = new Date(today.getFullYear(), today.getMonth(), dueDay);
+          if (dueDate < today) {
+            dueDate.setMonth(dueDate.getMonth() + 1);
+          }
+          
+          // Calculate when we should have created the submission
+          const reminderDay = service.reminderDay;
+          const shouldHaveCreatedBy = reminderDay ? 
+            new Date(today.getFullYear(), today.getMonth(), reminderDay) : 
+            new Date(dueDate.getTime() - 7 * 24 * 60 * 60 * 1000); // 7 days before due if no reminderDay
+          
+          // If we're past when we should have created it, create it now as URGENT
+          const isOverdue = today >= shouldHaveCreatedBy;
+          const isPastDue = today > dueDate;
+          
+          if (isOverdue || isPastDue) {
+            console.log(`🚨 CRITICAL: Creating missing bill submission for service ${service.id} (${service.name})`);
+            console.log(`   - Due date: ${dueDate.toISOString()}`);
+            console.log(`   - Should have been created by: ${shouldHaveCreatedBy.toISOString()}`);
+            console.log(`   - Current date: ${today.toISOString()}`);
+            console.log(`   - Reminder day: ${reminderDay || 'NULL'}`);
+            
+            // Create the urgent bill submission
+            const submission = await BillSubmission.create({
+              houseServiceId: service.id,
+              userId: service.designatedUser.id,
+              status: 'pending',
+              dueDate: isPastDue ? new Date(Date.now() + 24 * 60 * 60 * 1000) : dueDate, // If past due, give 1 day
+              metadata: {
+                serviceName: service.name,
+                month: today.getMonth() + 1,
+                year: today.getFullYear(),
+                createdByFailsafe: true,
+                isUrgent: isPastDue,
+                originalDueDate: dueDate.toISOString(),
+                reminderDay: reminderDay,
+                missedReason: reminderDay ? 'reminderDay_mismatch' : 'no_reminderDay'
+              }
+            });
+            
+            // Send urgent notification
+            const urgencyLevel = isPastDue ? 'OVERDUE' : 'URGENT';
+            const message = isPastDue ? 
+              `🚨 OVERDUE: ${service.name} bill submission was missed! Submit amount immediately.` :
+              `⚠️ URGENT: Submit ${service.name} bill amount - due soon and was missed by scheduler.`;
+              
+            const metadata = {
+              type: 'bill_submission_urgent',
+              billSubmissionId: submission.id,
+              serviceId: service.id,
+              urgencyLevel,
+              isPastDue,
+              originalDueDate: dueDate.toISOString()
+            };
+            
+            try {
+              const notification = await sendNotification(
+                service.designatedUser,
+                message,
+                metadata,
+                `${urgencyLevel}: Bill Submission Required`
+              );
+              console.log(`✅ Urgent notification sent for service ${service.id}`);
+            } catch (notifError) {
+              console.error(`❌ Failed to send urgent notification for service ${service.id}:`, notifError);
+            }
+            
+            results.push({
+              serviceId: service.id,
+              serviceName: service.name,
+              submissionId: submission.id,
+              success: true,
+              action: 'created_urgent',
+              isOverdue: isPastDue,
+              dueDate: dueDate.toISOString(),
+              reminderDay: reminderDay
+            });
+            createdCount++;
+            
+          } else {
+            // Not yet time to create submission
+            results.push({
+              serviceId: service.id,
+              serviceName: service.name,
+              success: true,
+              action: 'not_yet_time',
+              reminderDay: reminderDay,
+              dueDate: dueDate.toISOString()
+            });
+            skippedCount++;
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error processing service ${service.id}:`, error);
+          results.push({
+            serviceId: service.id,
+            serviceName: service.name,
+            success: false,
+            error: error.message,
+            action: 'error'
+          });
+          errorCount++;
+        }
+      }
+      
+      const summary = {
+        totalServices: allVariableServices.length,
+        createdCount,
+        skippedCount,
+        errorCount,
+        results
+      };
+      
+      if (createdCount > 0) {
+        console.log(`🚨 CRITICAL SAFEGUARD ACTIVATED: Created ${createdCount} missing bill submissions!`);
+      } else {
+        console.log(`✅ SAFEGUARD CHECK COMPLETE: No missing bill submissions found`);
+      }
+      
+      console.log(`📊 Summary: ${createdCount} created, ${skippedCount} skipped, ${errorCount} errors`);
+      
+      return summary;
+      
+    } catch (error) {
+      console.error('❌ CRITICAL ERROR in missing bill submission check:', error);
       throw error;
     }
   },
